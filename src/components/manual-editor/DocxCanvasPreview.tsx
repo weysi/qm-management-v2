@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BaseTextarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TemplateCanvasLayout } from "@/lib/schemas";
 
 const DOCX_PAGE_HEIGHT = 1120;
@@ -172,15 +173,22 @@ export function DocxCanvasPreview({
   }, [positionedBlocks]);
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2">
-      <div className="border-b xl:border-b-0 xl:border-r border-gray-200 bg-gray-100 flex flex-col">
-        <div className="px-4 py-3 border-b border-gray-200 bg-white">
-          <p className="text-sm font-semibold text-gray-900">Dokumentvorschau</p>
-          <p className="text-xs text-gray-500">
-            Vollständige DOCX-Ansicht der aktuellen Version ({source}).
-          </p>
-        </div>
+    <Tabs defaultValue="preview" className="flex flex-col h-full">
+      <div className="px-4 pt-3 border-b border-gray-200 bg-white">
+        <TabsList className="mb-0">
+          <TabsTrigger value="preview">Dokumentvorschau</TabsTrigger>
+          <TabsTrigger value="blocks">
+            Blöcke bearbeiten
+            {pages.reduce((sum, p) => sum + p.items.length, 0) > 0 && (
+              <span className="ml-1.5 rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-700">
+                {pages.reduce((sum, p) => sum + p.items.length, 0)}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+      </div>
 
+      <TabsContent value="preview" className="flex-1 overflow-auto m-0 bg-gray-100">
         <div className="p-4 overflow-x-auto">
           <div ref={renderRef} className="docx-rendered-preview min-w-[780px]" />
           {visualStatus === "loading" && (
@@ -192,80 +200,73 @@ export function DocxCanvasPreview({
             </p>
           )}
         </div>
-      </div>
+      </TabsContent>
 
-      <div className="bg-gray-200 p-4 space-y-6">
-        {pages.map((page) => (
-          <div
-            key={`page-${page.page}`}
-            className="mx-auto relative bg-white border border-gray-300 shadow-sm"
-            style={{
-              width: `${FALLBACK_PAGE_WIDTH}px`,
-              minHeight: `${DOCX_PAGE_HEIGHT}px`,
-            }}
-          >
-            <div className="absolute top-3 right-4 text-[11px] text-gray-500">
-              Seite {page.page}
-            </div>
-
-            {page.items.map(({ block, layout: blockLayout }) => {
-              const localY = blockLayout.y - (page.page - 1) * DOCX_PAGE_HEIGHT;
-              return (
-                <div
-                  key={block.id}
-                  className="absolute rounded-md border bg-white/95 backdrop-blur-sm p-2"
-                  style={{
-                    left: `${blockLayout.x}px`,
-                    top: `${localY}px`,
-                    width: `${Math.max(180, blockLayout.w)}px`,
-                    minHeight: `${Math.max(62, blockLayout.h)}px`,
-                    zIndex: blockLayout.z,
-                    borderColor:
-                      blockLayout.confidence < 0.5 ? "rgb(245 158 11)" : "rgb(209 213 219)",
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <label className="flex items-center gap-1 text-[11px] text-gray-600">
-                      <input
-                        type="checkbox"
-                        checked={selectedBlockIds.has(block.id)}
-                        onChange={() => onToggleBlockSelection(block.id)}
-                      />
-                      Block {block.nodeIndex}
-                    </label>
-                    <div className="flex gap-1">
-                      {block.currentPlaceholders.map((token) => (
-                        <Badge
-                          key={`${block.id}-${token}`}
-                          variant={effectiveMap[token] ? "green" : "orange"}
-                        >
-                          {token}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-
-                  <BaseTextarea
-                    value={block.currentText}
-                    onChange={(event) => onChangeBlockText(block.id, event.target.value)}
-                    className="min-h-[62px] text-xs leading-5"
-                  />
-
+      <TabsContent value="blocks" className="flex-1 overflow-auto m-0 bg-gray-50">
+        <div className="p-4 space-y-4">
+          {pages.map((page) => (
+            <div key={`page-${page.page}`}>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Seite {page.page}
+              </p>
+              <div className="space-y-3">
+                {page.items.map(({ block, layout: blockLayout }) => (
                   <div
-                    className="mt-1 text-[11px] text-gray-700 whitespace-pre-wrap"
-                    dangerouslySetInnerHTML={{
-                      __html: renderHighlightedPlaceholders(
-                        block.currentText,
-                        effectiveMap
-                      ).replace(/\n/g, "<br/>"),
+                    key={block.id}
+                    className="rounded-md border bg-white shadow-sm p-3"
+                    style={{
+                      borderColor:
+                        blockLayout.confidence < 0.5 ? "rgb(245 158 11)" : "rgb(209 213 219)",
                     }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <label className="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedBlockIds.has(block.id)}
+                          onChange={() => onToggleBlockSelection(block.id)}
+                        />
+                        <span className="font-medium">Block {block.nodeIndex}</span>
+                        {blockLayout.confidence < 0.5 && (
+                          <span className="text-amber-500">(niedrige Konfidenz)</span>
+                        )}
+                      </label>
+                      <div className="flex gap-1 flex-wrap justify-end">
+                        {block.currentPlaceholders.map((token) => (
+                          <Badge
+                            key={`${block.id}-${token}`}
+                            variant={effectiveMap[token] ? "green" : "orange"}
+                          >
+                            {token}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+
+                    <BaseTextarea
+                      value={block.currentText}
+                      onChange={(event) => onChangeBlockText(block.id, event.target.value)}
+                      className="min-h-[62px] text-xs leading-5"
+                    />
+
+                    {block.currentPlaceholders.length > 0 && (
+                      <div
+                        className="mt-2 text-[11px] text-gray-700 whitespace-pre-wrap bg-gray-50 rounded px-2 py-1"
+                        dangerouslySetInnerHTML={{
+                          __html: renderHighlightedPlaceholders(
+                            block.currentText,
+                            effectiveMap
+                          ).replace(/\n/g, "<br/>"),
+                        }}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </TabsContent>
+    </Tabs>
   );
 }

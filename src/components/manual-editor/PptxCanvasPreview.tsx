@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { BaseTextarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TemplateCanvasLayout } from "@/lib/schemas";
 
 const FALLBACK_SLIDE_WIDTH = 960;
@@ -120,6 +121,8 @@ export function PptxCanvasPreview({
       });
   }, [positionedBlocks]);
 
+  const totalBlocks = slides.reduce((sum, s) => sum + s.items.length, 0);
+
   if (slides.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
@@ -129,84 +132,141 @@ export function PptxCanvasPreview({
   }
 
   return (
-    <div className="bg-slate-100 p-4 space-y-6">
-      {slides.map((slide) => (
-        <div
-          key={`slide-${slide.slideNumber}`}
-          className="mx-auto bg-white border border-gray-300 rounded-md shadow-sm overflow-hidden"
-          style={{ width: `${slide.width}px` }}
-        >
-          <div className="px-4 py-2 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-            <p className="text-xs font-semibold text-gray-700">Folie {slide.slideNumber}</p>
-            <p className="text-[11px] text-gray-500">
-              Textobjekt-Canvas mit inline Bearbeitung
-            </p>
-          </div>
+    <Tabs defaultValue="canvas" className="flex flex-col h-full">
+      <div className="px-4 pt-3 border-b border-gray-200 bg-white">
+        <TabsList className="mb-0">
+          <TabsTrigger value="canvas">Folien-Canvas</TabsTrigger>
+          <TabsTrigger value="blocks">
+            Blöcke bearbeiten
+            {totalBlocks > 0 && (
+              <span className="ml-1.5 rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-700">
+                {totalBlocks}
+              </span>
+            )}
+          </TabsTrigger>
+        </TabsList>
+      </div>
 
-          <div
-            className="relative"
-            style={{
-              width: `${slide.width}px`,
-              height: `${slide.height}px`,
-              background:
-                "linear-gradient(145deg, rgba(248,250,252,1) 0%, rgba(241,245,249,1) 100%)",
-            }}
-          >
-            {slide.items.map(({ block, layout: blockLayout }) => (
+      <TabsContent value="canvas" className="flex-1 overflow-auto m-0">
+        <div className="bg-slate-100 p-4 space-y-6">
+          {slides.map((slide) => (
+            <div
+              key={`slide-${slide.slideNumber}`}
+              className="mx-auto bg-white border border-gray-300 rounded-md shadow-sm overflow-hidden"
+              style={{ width: `${slide.width}px` }}
+            >
+              <div className="px-4 py-2 border-b border-gray-200 bg-gray-50">
+                <p className="text-xs font-semibold text-gray-700">Folie {slide.slideNumber}</p>
+              </div>
               <div
-                key={block.id}
-                className="absolute rounded-md border border-gray-300 bg-white/95 p-2"
+                className="relative"
                 style={{
-                  left: `${blockLayout.x}px`,
-                  top: `${blockLayout.y}px`,
-                  width: `${Math.max(180, blockLayout.w)}px`,
-                  minHeight: `${Math.max(58, blockLayout.h)}px`,
-                  zIndex: blockLayout.z,
-                  borderColor:
-                    blockLayout.confidence < 0.5 ? "rgb(245 158 11)" : "rgb(209 213 219)",
+                  width: `${slide.width}px`,
+                  height: `${slide.height}px`,
+                  background:
+                    "linear-gradient(145deg, rgba(248,250,252,1) 0%, rgba(241,245,249,1) 100%)",
                 }}
               >
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <label className="flex items-center gap-1 text-[11px] text-gray-600">
-                    <input
-                      type="checkbox"
-                      checked={selectedBlockIds.has(block.id)}
-                      onChange={() => onToggleBlockSelection(block.id)}
-                    />
-                    Block {block.nodeIndex}
-                  </label>
-                  <div className="flex gap-1">
-                    {block.currentPlaceholders.map((token) => (
-                      <Badge
-                        key={`${block.id}-${token}`}
-                        variant={effectiveMap[token] ? "green" : "orange"}
-                      >
-                        {token}
-                      </Badge>
-                    ))}
+                {slide.items.map(({ block, layout: blockLayout }) => (
+                  <div
+                    key={block.id}
+                    className="absolute rounded px-2 py-1 text-xs text-gray-800 whitespace-pre-wrap pointer-events-none"
+                    style={{
+                      left: `${blockLayout.x}px`,
+                      top: `${blockLayout.y}px`,
+                      width: `${Math.max(120, blockLayout.w)}px`,
+                      minHeight: `${Math.max(24, blockLayout.h)}px`,
+                      zIndex: blockLayout.z,
+                      background: blockLayout.confidence < 0.5
+                        ? "rgba(254,243,199,0.85)"
+                        : "rgba(255,255,255,0.82)",
+                      border: `1px solid ${
+                        blockLayout.confidence < 0.5 ? "rgb(245 158 11)" : "rgb(203 213 225)"
+                      }`,
+                    }}
+                  >
+                    {block.currentPlaceholders.length > 0 ? (
+                      <span
+                        dangerouslySetInnerHTML={{
+                          __html: renderHighlightedPlaceholders(block.currentText, effectiveMap).replace(/\n/g, "<br/>"),
+                        }}
+                      />
+                    ) : (
+                      block.currentText
+                    )}
                   </div>
-                </div>
-
-                <BaseTextarea
-                  value={block.currentText}
-                  onChange={(event) => onChangeBlockText(block.id, event.target.value)}
-                  className="min-h-[58px] text-xs leading-5"
-                />
-
-                <div
-                  className="mt-1 text-[11px] text-gray-700 whitespace-pre-wrap"
-                  dangerouslySetInnerHTML={{
-                    __html: renderHighlightedPlaceholders(
-                      block.currentText,
-                      effectiveMap
-                    ).replace(/\n/g, "<br/>"),
-                  }}
-                />
+                ))}
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
-      ))}
-    </div>
+      </TabsContent>
+
+      <TabsContent value="blocks" className="flex-1 overflow-auto m-0 bg-gray-50">
+        <div className="p-4 space-y-4">
+          {slides.map((slide) => (
+            <div key={`slide-blocks-${slide.slideNumber}`}>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Folie {slide.slideNumber}
+              </p>
+              <div className="space-y-3">
+                {slide.items.map(({ block, layout: blockLayout }) => (
+                  <div
+                    key={block.id}
+                    className="rounded-md border bg-white shadow-sm p-3"
+                    style={{
+                      borderColor:
+                        blockLayout.confidence < 0.5 ? "rgb(245 158 11)" : "rgb(209 213 219)",
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <label className="flex items-center gap-1.5 text-[11px] text-gray-600 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedBlockIds.has(block.id)}
+                          onChange={() => onToggleBlockSelection(block.id)}
+                        />
+                        <span className="font-medium">Block {block.nodeIndex}</span>
+                        {blockLayout.confidence < 0.5 && (
+                          <span className="text-amber-500">(niedrige Konfidenz)</span>
+                        )}
+                      </label>
+                      <div className="flex gap-1 flex-wrap justify-end">
+                        {block.currentPlaceholders.map((token) => (
+                          <Badge
+                            key={`${block.id}-${token}`}
+                            variant={effectiveMap[token] ? "green" : "orange"}
+                          >
+                            {token}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+
+                    <BaseTextarea
+                      value={block.currentText}
+                      onChange={(event) => onChangeBlockText(block.id, event.target.value)}
+                      className="min-h-[58px] text-xs leading-5"
+                    />
+
+                    {block.currentPlaceholders.length > 0 && (
+                      <div
+                        className="mt-2 text-[11px] text-gray-700 whitespace-pre-wrap bg-gray-50 rounded px-2 py-1"
+                        dangerouslySetInnerHTML={{
+                          __html: renderHighlightedPlaceholders(
+                            block.currentText,
+                            effectiveMap
+                          ).replace(/\n/g, "<br/>"),
+                        }}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </TabsContent>
+    </Tabs>
   );
 }
