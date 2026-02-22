@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,7 @@ export function TemplateCanvasWorkspace({
   globalOverrides,
   fileOverridesByFile,
 }: TemplateCanvasWorkspaceProps) {
+  const router = useRouter();
   const [previewSource, setPreviewSource] = useState<TemplatePreviewSource>("auto");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [selectedBlockIds, setSelectedBlockIds] = useState<Set<string>>(new Set());
@@ -394,6 +396,17 @@ export function TemplateCanvasWorkspace({
           >
             Auswahl als ZIP
           </Button>
+          {file.ext === "docx" && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                router.push(`/manuals/${manualId}/canvas-editor/${file.id}`)
+              }
+            >
+              Erweiterter Editor
+            </Button>
+          )}
         </div>
 
         <BaseTextarea

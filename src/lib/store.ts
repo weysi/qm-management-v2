@@ -6,6 +6,7 @@ import { mockClients } from "./mock-data/clients";
 import { mockManuals } from "./mock-data/manuals";
 import { mockReferenceFiles } from "./mock-data/reference-files";
 import type { Client, Manual, ReferenceFile, TemplateFile } from "@/lib/schemas";
+import type { ProjectWorkspace, ProjectAsset, ChangeLog, ProjectVersion } from "@/lib/schemas/project-workspace.schema";
 
 // Use global to survive hot-reload in Next.js dev mode
 const g = global as typeof globalThis & {
@@ -13,16 +14,29 @@ const g = global as typeof globalThis & {
   __qm_manuals?: Manual[];
   __qm_refs?: ReferenceFile[];
   __qm_template_files?: TemplateFile[];
+  // Canvas editor project workspace
+  __qm_projects?: ProjectWorkspace[];
+  __qm_project_assets?: ProjectAsset[];
+  __qm_project_changes?: ChangeLog[];
+  __qm_project_versions?: ProjectVersion[];
 };
 
 if (!g.__qm_clients) g.__qm_clients = [...mockClients];
 if (!g.__qm_manuals) g.__qm_manuals = [...mockManuals];
 if (!g.__qm_refs) g.__qm_refs = [...mockReferenceFiles];
 if (!g.__qm_template_files) g.__qm_template_files = [];
+if (!g.__qm_projects) g.__qm_projects = [];
+if (!g.__qm_project_assets) g.__qm_project_assets = [];
+if (!g.__qm_project_changes) g.__qm_project_changes = [];
+if (!g.__qm_project_versions) g.__qm_project_versions = [];
 
 export const store = {
   clients: g.__qm_clients,
   manuals: g.__qm_manuals,
   refs: g.__qm_refs,
   templates: g.__qm_template_files,
+  projects: g.__qm_projects,
+  projectAssets: g.__qm_project_assets,
+  projectChanges: g.__qm_project_changes,
+  projectVersions: g.__qm_project_versions,
 };
