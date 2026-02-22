@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { Page, ParagraphBlock, DocumentObject } from "@/lib/schemas/canvas-model.schema";
+import type { Page, ParagraphBlock } from "@/lib/schemas/canvas-model.schema";
 import { BlockOverlay } from "./BlockOverlay";
 import { FabricObjectLayer } from "./FabricObjectLayer";
 
@@ -91,6 +91,9 @@ export function CanvasPageLayer({
 }: CanvasPageLayerProps) {
   const previewRef = useRef<HTMLDivElement>(null);
   const [wysiwyg, setWysiwyg] = useState<"loading" | "ready" | "error">("loading");
+  void manualId;
+  void fileId;
+  void previewVersion;
 
   const paragraphBlocks = collectParagraphBlocks(page);
 

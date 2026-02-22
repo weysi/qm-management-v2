@@ -178,7 +178,7 @@ export function UnifiedNavigator({
             ref={inputRef}
             type="file"
             multiple
-            accept=".docx,.pptx"
+            accept=".docx,.pptx,.xlsx"
             className="hidden"
             onChange={handleFileInput}
           />

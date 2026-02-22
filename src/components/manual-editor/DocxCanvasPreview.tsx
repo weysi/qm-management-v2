@@ -7,7 +7,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TemplateCanvasLayout } from "@/lib/schemas";
 
 const DOCX_PAGE_HEIGHT = 1120;
-const FALLBACK_PAGE_WIDTH = 816;
 
 interface EditableCanvasBlock {
   id: string;
@@ -173,7 +172,7 @@ export function DocxCanvasPreview({
   }, [positionedBlocks]);
 
   return (
-    <Tabs defaultValue="preview" className="flex flex-col h-full">
+    <Tabs defaultValue="preview" className="w-full">
       <div className="px-4 pt-3 border-b border-gray-200 bg-white">
         <TabsList className="mb-0">
           <TabsTrigger value="preview">Dokumentvorschau</TabsTrigger>
@@ -188,8 +187,8 @@ export function DocxCanvasPreview({
         </TabsList>
       </div>
 
-      <TabsContent value="preview" className="flex-1 overflow-auto m-0 bg-gray-100">
-        <div className="p-4 overflow-x-auto">
+      <TabsContent value="preview" className="m-0 bg-gray-100">
+        <div className="p-4">
           <div ref={renderRef} className="docx-rendered-preview min-w-[780px]" />
           {visualStatus === "loading" && (
             <p className="text-xs text-gray-500 mt-2">Lade DOCX-Vorschau...</p>
@@ -202,7 +201,7 @@ export function DocxCanvasPreview({
         </div>
       </TabsContent>
 
-      <TabsContent value="blocks" className="flex-1 overflow-auto m-0 bg-gray-50">
+      <TabsContent value="blocks" className="m-0 bg-gray-50">
         <div className="p-4 space-y-4">
           {pages.map((page) => (
             <div key={`page-${page.page}`}>

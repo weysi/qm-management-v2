@@ -150,7 +150,7 @@ function applyPreFiltering(
     }
     // Simplified: skip blocks in the last 3 positions of any page
     // (proper implementation would track anchoredToParagraphId)
-    result = result.filter((b) => {
+    result = result.filter(() => {
       // Skip if near signature by nodeIndex adjacency
       return true; // MVP: no-op, full impl in v1
     });

@@ -88,7 +88,7 @@ export async function POST(req: Request, { params }: RouteParams) {
     if (!ext) {
       rejected.push({
         path: sanitizedPath,
-        reason: "Unsupported file type. Only .docx and .pptx are allowed.",
+        reason: "Unsupported file type. Only .docx, .pptx and .xlsx are allowed.",
       });
       continue;
     }

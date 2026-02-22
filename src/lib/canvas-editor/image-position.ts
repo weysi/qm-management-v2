@@ -50,10 +50,12 @@ export function mmToPx(mm: number): number {
  */
 export function uiPosToPosOffset(
   pxOffset: number,
-  _pageSizePx: number,
-  _pageSizeEmu: number
+  pageSizePx: number,
+  pageSizeEmu: number
 ): number {
   // Simple direct conversion — EMU_PER_PX is constant regardless of page size
+  void pageSizePx;
+  void pageSizeEmu;
   return pxToEmu(pxOffset);
 }
 

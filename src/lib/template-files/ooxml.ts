@@ -1,14 +1,18 @@
 import JSZip from "jszip";
 import type { TemplateFileExt } from "@/lib/schemas";
 import { applyBlockEditsToOoxml, extractEditableBlocksFromOoxml } from "./ooxml-preview";
+import { applyPlaceholderMapToXlsx, extractPlaceholdersFromXlsx } from "./xlsx";
 
 const PLACEHOLDER_REGEX = /\{\{([A-Z0-9_]+)\}\}/g;
 const DOCX_CONTENT_PATH_REGEX = /^word\/(document\.xml|header\d+\.xml|footer\d+\.xml)$/i;
 const PPT_SLIDE_PATH_REGEX = /^ppt\/slides\/slide\d+\.xml$/i;
 
 function getXmlEntryPaths(zip: JSZip, ext: TemplateFileExt): string[] {
-  const matcher =
-    ext === "docx" ? DOCX_CONTENT_PATH_REGEX : PPT_SLIDE_PATH_REGEX;
+  if (ext === "xlsx") {
+    return [];
+  }
+
+  const matcher = ext === "docx" ? DOCX_CONTENT_PATH_REGEX : PPT_SLIDE_PATH_REGEX;
 
   return Object.values(zip.files)
     .filter((entry) => !entry.dir)
@@ -48,6 +52,10 @@ export async function extractPlaceholdersFromOoxml(
   buffer: Buffer,
   ext: TemplateFileExt
 ): Promise<string[]> {
+  if (ext === "xlsx") {
+    return extractPlaceholdersFromXlsx(buffer);
+  }
+
   const zip = await JSZip.loadAsync(buffer);
   const xmlPaths = getXmlEntryPaths(zip, ext);
   const placeholders = new Set<string>();
@@ -70,6 +78,10 @@ export async function applyPlaceholderMapToOoxml(
   ext: TemplateFileExt,
   map: Record<string, string>
 ): Promise<{ output: Buffer; unresolved: string[] }> {
+  if (ext === "xlsx") {
+    return applyPlaceholderMapToXlsx(buffer, map);
+  }
+
   const preview = await extractEditableBlocksFromOoxml(buffer, ext, "__placeholder__");
   const unresolved = new Set<string>();
   const editsByBlockId: Record<string, string> = {};

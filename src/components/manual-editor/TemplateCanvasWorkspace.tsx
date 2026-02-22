@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { BaseTextarea } from "@/components/ui/textarea";
 import {
+  useExecuteManualGeneration,
   useDownloadTemplateFiles,
   useGenerateTemplateFiles,
   useRewriteTemplateFiles,
@@ -17,7 +18,12 @@ import {
 import { buildPlaceholderMap, extractPlaceholders } from "@/lib/placeholders";
 import { DocxCanvasPreview } from "./DocxCanvasPreview";
 import { PptxCanvasPreview } from "./PptxCanvasPreview";
-import type { Client, TemplateFileMetadata, TemplatePreviewSource } from "@/lib/schemas";
+import type {
+  Client,
+  GenerationRunReport,
+  TemplateFileMetadata,
+  TemplatePreviewSource,
+} from "@/lib/schemas";
 
 interface TemplateCanvasWorkspaceProps {
   manualId: string;
@@ -49,12 +55,14 @@ export function TemplateCanvasWorkspace({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [selectedBlockIds, setSelectedBlockIds] = useState<Set<string>>(new Set());
   const [rewritePrompt, setRewritePrompt] = useState("");
+  const [lastRunReport, setLastRunReport] = useState<GenerationRunReport | null>(null);
+  const supportsPreviewEditing = file.ext === "docx" || file.ext === "pptx";
 
   const {
     data: preview,
     isLoading,
     isFetching,
-  } = useTemplateFilePreview(manualId, file.id, previewSource);
+  } = useTemplateFilePreview(manualId, file.id, previewSource, supportsPreviewEditing);
 
   const { mutate: savePreview, isPending: isSaving } = useSaveTemplateFilePreview(
     manualId,
@@ -66,18 +74,25 @@ export function TemplateCanvasWorkspace({
   const { mutate: rewriteFiles, isPending: isRewriting } = useRewriteTemplateFiles(
     manualId
   );
+  const { mutate: executeGeneration, isPending: isZeroTouchGenerating } =
+    useExecuteManualGeneration(manualId);
   const { mutate: downloadFiles, isPending: isDownloading } = useDownloadTemplateFiles(
     manualId
   );
 
   useEffect(() => {
+    if (!supportsPreviewEditing) {
+      setDrafts({});
+      setSelectedBlockIds(new Set());
+      return;
+    }
     if (!preview) return;
 
     setDrafts(
       Object.fromEntries(preview.blocks.map((block) => [block.id, block.text]))
     );
     setSelectedBlockIds(new Set());
-  }, [preview]);
+  }, [preview, supportsPreviewEditing]);
 
   const effectiveMap = useMemo(() => {
     return {
@@ -88,7 +103,7 @@ export function TemplateCanvasWorkspace({
   }, [client, file.id, globalOverrides, fileOverridesByFile]);
 
   const editableBlocks = useMemo<EditableBlock[]>(() => {
-    if (!preview) return [];
+    if (!supportsPreviewEditing || !preview) return [];
 
     return preview.blocks
       .slice()
@@ -103,9 +118,13 @@ export function TemplateCanvasWorkspace({
           currentPlaceholders: extractPlaceholders(currentText),
         };
       });
-  }, [preview, drafts]);
+  }, [preview, drafts, supportsPreviewEditing]);
 
   const unresolvedPlaceholders = useMemo(() => {
+    if (!supportsPreviewEditing) {
+      return file.unresolvedPlaceholders.slice().sort((a, b) => a.localeCompare(b));
+    }
+
     const unresolved = new Set<string>();
 
     editableBlocks.forEach((block) => {
@@ -117,16 +136,16 @@ export function TemplateCanvasWorkspace({
       });
     });
 
-    return Array.from(unresolved).sort();
-  }, [editableBlocks, effectiveMap]);
+    return Array.from(unresolved).sort((a, b) => a.localeCompare(b));
+  }, [editableBlocks, effectiveMap, file.unresolvedPlaceholders, supportsPreviewEditing]);
 
   const editedCount = useMemo(() => {
-    if (!preview) return 0;
+    if (!supportsPreviewEditing || !preview) return 0;
 
     return preview.blocks.filter((block) => {
       return (drafts[block.id] ?? block.text) !== block.text;
     }).length;
-  }, [preview, drafts]);
+  }, [preview, drafts, supportsPreviewEditing]);
 
   const selectedFiles = useMemo(() => {
     return selectedFileIds.size > 0 ? Array.from(selectedFileIds) : [file.id];
@@ -149,6 +168,10 @@ export function TemplateCanvasWorkspace({
   }
 
   function handleSaveChanges() {
+    if (!supportsPreviewEditing) {
+      toast.info("Diese Dateityp-Vorschau ist in diesem Schritt nicht editierbar.");
+      return;
+    }
     if (!preview) return;
 
     const edits = preview.blocks
@@ -212,6 +235,11 @@ export function TemplateCanvasWorkspace({
   }
 
   function handleRewriteBlocks() {
+    if (!supportsPreviewEditing) {
+      toast.info("Rewrite wird für diesen Dateityp aktuell nicht unterstützt.");
+      return;
+    }
+
     if (!rewritePrompt.trim()) {
       toast.error("Bitte gib eine KI-Anweisung ein.");
       return;
@@ -251,6 +279,11 @@ export function TemplateCanvasWorkspace({
   }
 
   function handleRewriteFullFiles() {
+    if (!supportsPreviewEditing) {
+      toast.info("Rewrite wird für diesen Dateityp aktuell nicht unterstützt.");
+      return;
+    }
+
     if (!rewritePrompt.trim()) {
       toast.error("Bitte gib eine KI-Anweisung ein.");
       return;
@@ -297,7 +330,43 @@ export function TemplateCanvasWorkspace({
     );
   }
 
-  if (isLoading) {
+  function handleZeroTouchGenerate() {
+    executeGeneration(
+      {
+        selectedFileIds: selectedFiles,
+        globalOverrides,
+        fileOverridesByFile,
+        useAiFallback: true,
+      },
+      {
+        onSuccess: (result) => {
+          setLastRunReport(result.runReport);
+          if (result.runReport.status === "failed") {
+            toast.error(
+              `Zero-Touch fehlgeschlagen (${result.runReport.summary.failedFiles}/${result.runReport.summary.totalFiles}).`
+            );
+          } else if (result.runReport.status === "partial") {
+            toast.warning(
+              `Zero-Touch teilweise abgeschlossen (${result.runReport.summary.generatedFiles} generiert, ${result.runReport.summary.failedFiles} fehlgeschlagen).`
+            );
+          } else {
+            toast.success(
+              `Zero-Touch abgeschlossen (${result.runReport.summary.generatedFiles} Datei(en) generiert).`
+            );
+          }
+
+          if (result.aiWarning) {
+            toast.warning(result.aiWarning);
+          }
+        },
+        onError: (error) => {
+          toast.error(error.message);
+        },
+      }
+    );
+  }
+
+  if (supportsPreviewEditing && isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <Spinner />
@@ -305,7 +374,7 @@ export function TemplateCanvasWorkspace({
     );
   }
 
-  if (!preview) {
+  if (supportsPreviewEditing && !preview) {
     return (
       <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
         Vorschau konnte nicht geladen werden.
@@ -313,7 +382,12 @@ export function TemplateCanvasWorkspace({
     );
   }
 
-  const sourceLabel = preview.source === "generated" ? "Generated" : "Original";
+  const sourceLabel =
+    supportsPreviewEditing && preview?.source === "generated"
+      ? "Generated"
+      : file.hasGeneratedVersion
+      ? "Generated"
+      : "Original";
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -325,7 +399,17 @@ export function TemplateCanvasWorkspace({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant={preview.source === "generated" ? "green" : "gray"}>
+            <Badge
+              variant={
+                supportsPreviewEditing
+                  ? preview?.source === "generated"
+                    ? "green"
+                    : "gray"
+                  : file.hasGeneratedVersion
+                  ? "green"
+                  : "gray"
+              }
+            >
               {sourceLabel}
             </Badge>
             <Badge variant={editedCount > 0 ? "orange" : "blue"}>{editedCount} geändert</Badge>
@@ -333,34 +417,41 @@ export function TemplateCanvasWorkspace({
               {unresolvedPlaceholders.length} offen
             </Badge>
 
-            <div className="flex items-center gap-1 ml-2">
-              <Button
-                size="sm"
-                variant={previewSource === "auto" ? "secondary" : "ghost"}
-                onClick={() => setPreviewSource("auto")}
-              >
-                Auto
-              </Button>
-              <Button
-                size="sm"
-                variant={previewSource === "original" ? "secondary" : "ghost"}
-                onClick={() => setPreviewSource("original")}
-              >
-                Original
-              </Button>
-              <Button
-                size="sm"
-                variant={previewSource === "generated" ? "secondary" : "ghost"}
-                onClick={() => setPreviewSource("generated")}
-              >
-                Generated
-              </Button>
-            </div>
+            {supportsPreviewEditing && (
+              <div className="flex items-center gap-1 ml-2">
+                <Button
+                  size="sm"
+                  variant={previewSource === "auto" ? "secondary" : "ghost"}
+                  onClick={() => setPreviewSource("auto")}
+                >
+                  Auto
+                </Button>
+                <Button
+                  size="sm"
+                  variant={previewSource === "original" ? "secondary" : "ghost"}
+                  onClick={() => setPreviewSource("original")}
+                >
+                  Original
+                </Button>
+                <Button
+                  size="sm"
+                  variant={previewSource === "generated" ? "secondary" : "ghost"}
+                  onClick={() => setPreviewSource("generated")}
+                >
+                  Generated
+                </Button>
+              </div>
+            )}
           </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={handleSaveChanges} loading={isSaving} disabled={editedCount === 0}>
+          <Button
+            size="sm"
+            onClick={handleSaveChanges}
+            loading={isSaving}
+            disabled={!supportsPreviewEditing || editedCount === 0}
+          >
             Änderungen speichern
           </Button>
           <Button
@@ -373,10 +464,18 @@ export function TemplateCanvasWorkspace({
           </Button>
           <Button
             size="sm"
+            variant="secondary"
+            onClick={handleZeroTouchGenerate}
+            loading={isZeroTouchGenerating}
+          >
+            Zero-Touch Generate ({selectedFiles.length})
+          </Button>
+          <Button
+            size="sm"
             variant="outline"
             onClick={handleRewriteBlocks}
             loading={isRewriting}
-            disabled={selectedBlockIds.size === 0}
+            disabled={!supportsPreviewEditing || selectedBlockIds.size === 0}
           >
             Blöcke mit KI umschreiben ({selectedBlockIds.size})
           </Button>
@@ -385,6 +484,7 @@ export function TemplateCanvasWorkspace({
             variant="outline"
             onClick={handleRewriteFullFiles}
             loading={isRewriting}
+            disabled={!supportsPreviewEditing}
           >
             Auswahl komplett mit KI ({selectedFiles.length})
           </Button>
@@ -409,20 +509,62 @@ export function TemplateCanvasWorkspace({
           )}
         </div>
 
-        <BaseTextarea
-          value={rewritePrompt}
-          onChange={(event) => setRewritePrompt(event.target.value)}
-          className="min-h-[70px]"
-          placeholder="KI-Anweisung, z. B. 'Formuliere formeller und ergänze ISO-9001-konforme Details'."
-        />
+        {supportsPreviewEditing ? (
+          <BaseTextarea
+            value={rewritePrompt}
+            onChange={(event) => setRewritePrompt(event.target.value)}
+            className="min-h-[70px]"
+            placeholder="KI-Anweisung, z. B. 'Formuliere formeller und ergänze ISO-9001-konforme Details'."
+          />
+        ) : (
+          <p className="text-xs text-gray-500">
+            Für XLSX ist in dieser Phase keine Canvas-Vorschau verfügbar. Automatisierung und ZIP-Download sind weiterhin vollständig nutzbar.
+          </p>
+        )}
+
+        {lastRunReport && (
+          <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+            <p className="font-medium text-gray-900">
+              Letzter Lauf: {lastRunReport.status.toUpperCase()}
+            </p>
+            <p>
+              Gesamt: {lastRunReport.summary.totalFiles} · Generiert:{" "}
+              {lastRunReport.summary.generatedFiles} · Fehlgeschlagen:{" "}
+              {lastRunReport.summary.failedFiles} · Übersprungen:{" "}
+              {lastRunReport.summary.skippedFiles}
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-        {isFetching && (
+        {supportsPreviewEditing && isFetching && (
           <p className="px-6 pt-2 text-xs text-gray-500">Aktualisiere Vorschau...</p>
         )}
 
-        {file.ext === "docx" ? (
+        {!supportsPreviewEditing ? (
+          <div className="p-6 space-y-3">
+            <p className="text-sm text-gray-700">
+              Diese Datei wird deterministisch über Platzhalter befüllt und kann anschließend mit der Originalstruktur heruntergeladen werden.
+            </p>
+            <div className="rounded-md border border-gray-200 bg-white p-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                Platzhalter
+              </p>
+              {file.placeholders.length === 0 ? (
+                <p className="text-xs text-gray-500">Keine Platzhalter gefunden.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {file.placeholders.map((token) => (
+                    <Badge key={token} variant={effectiveMap[token] ? "green" : "orange"}>
+                      {token}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : file.ext === "docx" && preview ? (
           <DocxCanvasPreview
             manualId={manualId}
             fileId={file.id}
@@ -438,7 +580,7 @@ export function TemplateCanvasWorkspace({
         ) : (
           <PptxCanvasPreview
             blocks={editableBlocks}
-            layout={preview.layout}
+            layout={preview?.layout ?? []}
             effectiveMap={effectiveMap}
             selectedBlockIds={selectedBlockIds}
             onToggleBlockSelection={toggleBlockSelection}

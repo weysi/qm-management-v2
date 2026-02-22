@@ -71,6 +71,13 @@ export async function GET(req: Request, { params }: RouteParams) {
     );
   }
 
+  if (file.ext === "xlsx") {
+    return NextResponse.json(
+      { error: "XLSX preview editing is not supported in this phase" },
+      { status: 400 }
+    );
+  }
+
   const sourceBuffer = Buffer.from(sourceBase64, "base64");
   const preview = await extractEditableBlocksFromOoxml(sourceBuffer, file.ext, file.id);
 
@@ -130,6 +137,13 @@ export async function PUT(req: Request, { params }: RouteParams) {
   if (!sourceBase64) {
     return NextResponse.json(
       { error: "No editable file version available" },
+      { status: 400 }
+    );
+  }
+
+  if (file.ext === "xlsx") {
+    return NextResponse.json(
+      { error: "XLSX preview editing is not supported in this phase" },
       { status: 400 }
     );
   }

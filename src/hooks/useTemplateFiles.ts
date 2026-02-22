@@ -215,12 +215,13 @@ export function useTemplateFiles(manualId: string) {
 export function useTemplateFilePreview(
   manualId: string,
   fileId: string,
-  source: TemplatePreviewSource
+  source: TemplatePreviewSource,
+  enabled = true
 ) {
   return useQuery({
     queryKey: previewQueryKey(manualId, fileId, source),
     queryFn: () => fetchTemplateFilePreview(manualId, fileId, source),
-    enabled: !!manualId && !!fileId,
+    enabled: enabled && !!manualId && !!fileId,
   });
 }
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TemplateFileExtSchema = z.enum(["docx", "pptx"]);
+export const TemplateFileExtSchema = z.enum(["docx", "pptx", "xlsx"]);
 
 export const TemplateFileStatusSchema = z.enum([
   "uploaded",

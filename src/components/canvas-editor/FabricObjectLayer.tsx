@@ -6,7 +6,7 @@
  * Fabric.js is imported dynamically to avoid SSR issues.
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import type { DocumentObject } from "@/lib/schemas/canvas-model.schema";
 
 interface FabricObjectLayerProps {
@@ -43,10 +43,10 @@ export function FabricObjectLayer({
     let cancelled = false;
 
     (async () => {
-      const { Canvas, FabricImage } = await import("fabric");
+      const { Canvas, FabricImage, Rect } = await import("fabric");
       if (cancelled || !canvasRef.current) return;
 
-      fabricRef.current = { Canvas, FabricImage };
+      fabricRef.current = { Canvas, FabricImage, Rect };
 
       const fc = new Canvas(canvasRef.current, {
         width: pageWidth,
@@ -134,8 +134,8 @@ export function FabricObjectLayer({
           })
           .catch(() => {
             // Asset load failed — show placeholder rectangle
-            const { Rect } = require("fabric");
-            const rect = new Rect({
+            const RectCtor = fabric.Rect;
+            const rect = new RectCtor({
               left: obj.x,
               top: obj.y,
               width: obj.w,

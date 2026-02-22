@@ -241,7 +241,7 @@ export function TemplateFileSection({ manualId }: TemplateFileSectionProps) {
             <div>
               <h2 className="text-base font-semibold text-gray-900">Datei-Templates</h2>
               <p className="text-sm text-gray-500">
-                Lade ein Ordner-Template mit .docx/.pptx hoch, fülle Platzhalter und lade die Auswahl als ZIP herunter.
+                Lade ein Ordner-Template mit .docx/.pptx/.xlsx hoch, fülle Platzhalter und lade die Auswahl als ZIP herunter.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -249,7 +249,7 @@ export function TemplateFileSection({ manualId }: TemplateFileSectionProps) {
                 ref={inputRef}
                 type="file"
                 multiple
-                accept=".docx,.pptx"
+                accept=".docx,.pptx,.xlsx"
                 className="hidden"
                 onChange={handleInputChange}
               />

@@ -132,7 +132,7 @@ export function PptxCanvasPreview({
   }
 
   return (
-    <Tabs defaultValue="canvas" className="flex flex-col h-full">
+    <Tabs defaultValue="canvas" className="w-full">
       <div className="px-4 pt-3 border-b border-gray-200 bg-white">
         <TabsList className="mb-0">
           <TabsTrigger value="canvas">Folien-Canvas</TabsTrigger>
@@ -147,7 +147,7 @@ export function PptxCanvasPreview({
         </TabsList>
       </div>
 
-      <TabsContent value="canvas" className="flex-1 overflow-auto m-0">
+      <TabsContent value="canvas" className="m-0">
         <div className="bg-slate-100 p-4 space-y-6">
           {slides.map((slide) => (
             <div
@@ -202,7 +202,7 @@ export function PptxCanvasPreview({
         </div>
       </TabsContent>
 
-      <TabsContent value="blocks" className="flex-1 overflow-auto m-0 bg-gray-50">
+      <TabsContent value="blocks" className="m-0 bg-gray-50">
         <div className="p-4 space-y-4">
           {slides.map((slide) => (
             <div key={`slide-blocks-${slide.slideNumber}`}>

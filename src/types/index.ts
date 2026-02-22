@@ -39,6 +39,28 @@ export type {
   RewriteTemplateFilesRequest,
 } from "@/lib/schemas/template-file.schema";
 
+export type {
+  CompanyFunctionType,
+  CompanyHeadcountRange,
+  CompanyProfile,
+  PlaceholderValueType,
+  PlaceholderContext,
+  PlaceholderRegistryEntry,
+  PlaceholderRegistry,
+  TemplateLibraryFileRole,
+  TemplateLibraryFile,
+  TemplateLibraryManifest,
+  ManualPlanOperation,
+  ManualPlanTreeEntry,
+  ManualPlan,
+  ExecutionWarning,
+  GenerationRunFileResult,
+  GenerationRunReport,
+  ScanManualGenerationRequest,
+  PlanManualGenerationRequest,
+  ExecuteManualGenerationRequest,
+} from "@/lib/schemas/manual-generation.schema";
+
 // API response shape
 export interface ApiResponse<T> {
   data: T;

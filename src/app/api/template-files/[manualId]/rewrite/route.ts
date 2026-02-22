@@ -75,6 +75,10 @@ export async function POST(req: Request, { params }: RouteParams) {
 
   for (const file of files) {
     try {
+      if (file.ext === "xlsx") {
+        throw new Error("XLSX rewrite is not supported in this phase");
+      }
+
       const sourceBase64 = file.generatedBase64 ?? file.originalBase64;
       const sourceBuffer = Buffer.from(sourceBase64, "base64");
       const preview = await extractEditableBlocksFromOoxml(sourceBuffer, file.ext, file.id);

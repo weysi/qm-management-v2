@@ -19,16 +19,12 @@ import {
 } from "@/lib/project-workspace/store-adapter";
 import { importDocxToCanvasModel } from "@/lib/canvas-editor/docx-import";
 
-interface RouteParams {
-  params: Promise<{ projectId: string }>;
-}
-
 const InitRequestSchema = z.object({
   sourceFileId: z.string().min(1),
   manualId: z.string().min(1),
 });
 
-export async function POST(req: NextRequest, { params: _params }: RouteParams) {
+export async function POST(req: NextRequest) {
   let body: unknown;
   try {
     body = await req.json();

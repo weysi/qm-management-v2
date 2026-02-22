@@ -43,6 +43,7 @@ export function TiptapBlockEditor({
   );
 
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({
         // Disable block-level extensions — we only want inline text editing

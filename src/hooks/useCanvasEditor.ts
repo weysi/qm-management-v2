@@ -5,7 +5,7 @@
  * Follows the same pattern as the existing useTemplateFiles.ts hooks.
  */
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { CanvasModel, CanvasRewriteGuardrails } from "@/lib/schemas/canvas-model.schema";
 

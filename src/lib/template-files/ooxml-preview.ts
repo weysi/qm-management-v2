@@ -501,6 +501,12 @@ export async function extractEditableBlocksFromOoxml(
   ext: TemplateFileExt,
   fileId: string
 ): Promise<OoxmlEditablePreview> {
+  if (ext === "xlsx") {
+    throw new OoxmlIntegrityError(
+      "XLSX preview editing is not supported in this phase"
+    );
+  }
+
   const zip = await JSZip.loadAsync(buffer);
   const groups: TemplatePreviewGroup[] = [];
   const blocks: TemplatePreviewBlock[] = [];
@@ -687,6 +693,12 @@ export async function applyBlockEditsToOoxml(
   ext: TemplateFileExt,
   editsByBlockId: Record<string, string>
 ): Promise<Buffer> {
+  if (ext === "xlsx") {
+    throw new OoxmlIntegrityError(
+      "XLSX block-level editing is not supported in this phase"
+    );
+  }
+
   const zip = await JSZip.loadAsync(buffer);
 
   if (ext === "docx") {

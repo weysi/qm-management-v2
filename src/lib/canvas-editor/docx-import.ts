@@ -34,7 +34,6 @@ import {
   twipsToPx,
   A4_WIDTH_TWIPS,
   A4_HEIGHT_TWIPS,
-  pxToEmu,
 } from "./image-position";
 
 // ─── Constants (same as ooxml-preview.ts for compatibility) ──────────────────
@@ -544,7 +543,6 @@ export async function importDocxToCanvasModel(
     .sort();
 
   const allBlocks: Block[] = [];
-  const allBlockLayouts: LayoutResult[] = [];
   let hasHeaders = false;
   let hasFooters = false;
 
@@ -648,7 +646,7 @@ export async function importDocxToCanvasModel(
     const blockYPx = blockLayout ? blockLayout.y : 0;
     const pageNumber = blockLayout ? blockLayout.page : 1;
 
-    const { objectType, confidence, reasons } = classifyAsset(fo.parsed, {
+    const { objectType, confidence } = classifyAsset(fo.parsed, {
       drawingXml: fo.drawingXml,
       xmlPath: fo.xmlPath,
       paragraphNodeIndex: fo.nodeIndex,

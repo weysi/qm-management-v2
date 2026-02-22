@@ -7,7 +7,7 @@
  * Undo/redo maintained as an array of snapshots (max 50).
  */
 
-import { useReducer, useState, useCallback, useRef } from "react";
+import { useReducer, useState, useCallback } from "react";
 import type {
   CanvasModel,
   ParagraphBlock,
@@ -83,7 +83,7 @@ function updateTextInModel(
         );
         if (textRuns.length === 0) return block;
 
-        const distributed = updatedRuns.map((run, i) => {
+        const distributed = updatedRuns.map((run) => {
           if (run.type !== "text") return run;
           const textRunIdx = textRuns.findIndex((tr) => tr.id === run.id);
           if (textRunIdx === 0) return { ...run, text: newText, localVersion: run.localVersion + 1 } as TextRun;
@@ -349,7 +349,7 @@ export function CanvasEditorPage({
     try {
       await saveModel(model);
       toast.success("Gespeichert");
-    } catch (err) {
+    } catch {
       toast.error("Speichern fehlgeschlagen");
     } finally {
       setIsSaving(false);

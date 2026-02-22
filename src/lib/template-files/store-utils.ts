@@ -4,11 +4,12 @@ import type {
   TemplateFileMetadata,
 } from "@/lib/schemas";
 
-const EXTENSIONS: TemplateFileExt[] = ["docx", "pptx"];
+const EXTENSIONS: TemplateFileExt[] = ["docx", "pptx", "xlsx"];
 
 const MIME_BY_EXT: Record<TemplateFileExt, string> = {
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 
 export function getTemplateFileExtension(name: string): TemplateFileExt | null {
