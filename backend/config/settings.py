@@ -114,7 +114,7 @@ REST_FRAMEWORK = {
 }
 
 
-OPENAI_API_KEY = env("OPENAI_API_KEY","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" )
+OPENAI_API_KEY = env("OPENAI_API_KEY", "")
 OPENAI_CHAT_MODEL = env("OPENAI_CHAT_MODEL", "gpt-4o-mini")
 OPENAI_ROUTER_MODEL = env("OPENAI_ROUTER_MODEL", "gpt-4o-mini")
 OPENAI_EMBED_MODEL = env("OPENAI_EMBED_MODEL", "text-embedding-3-small")
