@@ -198,6 +198,8 @@ function validateRewrite(
     }
   }
 
+  
+
   // 3. Check style preservation (no markdown formatting in output)
   if (guardrails.preserveStyles) {
     if (/\*\*|__|\[.*\]\(|^#+\s/m.test(newText)) {
