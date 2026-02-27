@@ -1,0 +1,78 @@
+{
+	"package_code": "ISO9001",
+	"package_version": "v1",
+	"variables": [
+		{
+			"token": "COMPANY_NAME",
+			"type": "string",
+			"required": true,
+			"description": "Legal company name",
+			"examples": ["Muster GmbH"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "COMPANY_ADDRESS",
+			"type": "string",
+			"required": true,
+			"description": "Full company address",
+			"examples": ["Musterstrasse 10, 12345 Berlin"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "QUALITY_POLICY",
+			"type": "rich_text",
+			"required": true,
+			"description": "Quality policy section",
+			"examples": [],
+			"default_value": null,
+			"generation_policy": "AI_DRAFT"
+		},
+		{
+			"token": "SCOPE",
+			"type": "rich_text",
+			"required": true,
+			"description": "Scope of the management system",
+			"examples": [],
+			"default_value": null,
+			"generation_policy": "AI_DRAFT"
+		},
+		{
+			"token": "QM_MANAGER_NAME",
+			"type": "string",
+			"required": true,
+			"description": "Quality manager name",
+			"examples": [],
+			"default_value": null,
+			"generation_policy": "AI_INFER"
+		},
+		{
+			"token": "PROCESSES",
+			"type": "rich_text",
+			"required": true,
+			"description": "Description of key processes",
+			"examples": [],
+			"default_value": null,
+			"generation_policy": "AI_DRAFT"
+		},
+		{
+			"token": "OBJECTIVES",
+			"type": "rich_text",
+			"required": true,
+			"description": "Quality objectives",
+			"examples": [],
+			"default_value": null,
+			"generation_policy": "AI_DRAFT"
+		},
+		{
+			"token": "RISKS_AND_OPPORTUNITIES",
+			"type": "rich_text",
+			"required": true,
+			"description": "Identified risks and opportunities",
+			"examples": [],
+			"default_value": null,
+			"generation_policy": "AI_DRAFT"
+		}
+	]
+}

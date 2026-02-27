@@ -1,0 +1,33 @@
+{
+  "package_code": "SSCP",
+  "package_version": "v1",
+  "variables": [
+    {
+      "token": "COMPANY_NAME",
+      "type": "string",
+      "required": true,
+      "description": "Company legal name",
+      "examples": [],
+      "default_value": null,
+      "generation_policy": "DETERMINISTIC"
+    },
+    {
+      "token": "SECURITY_SCOPE",
+      "type": "rich_text",
+      "required": true,
+      "description": "Security scope statement",
+      "examples": [],
+      "default_value": null,
+      "generation_policy": "AI_DRAFT"
+    },
+    {
+      "token": "DATA_CLASSIFICATION_POLICY",
+      "type": "rich_text",
+      "required": true,
+      "description": "Data classification policy text",
+      "examples": [],
+      "default_value": null,
+      "generation_policy": "AI_DRAFT"
+    }
+  ]
+}

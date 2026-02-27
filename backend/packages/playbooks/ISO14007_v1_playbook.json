@@ -1,0 +1,13 @@
+{
+  "package_code": "ISO14007",
+  "package_version": "v1",
+  "default_output_folder": "outputs",
+  "draft_groups": [
+    {
+      "name": "environmental_scope",
+      "tokens": ["ENVIRONMENTAL_SCOPE", "CARBON_BOUNDARY"],
+      "retrieval_role": "REFERENCE"
+    }
+  ],
+  "replacement_mode": "SIMPLE_TEXT"
+}

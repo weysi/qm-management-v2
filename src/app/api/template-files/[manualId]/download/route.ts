@@ -1,8 +1,6 @@
-import JSZip from "jszip";
 import { NextResponse } from "next/server";
 import { DownloadTemplateFilesRequestSchema } from "@/lib/schemas";
-import { store } from "@/lib/store";
-import { sanitizeTemplatePath } from "@/lib/template-files";
+import { fetchRag, safeJson } from "@/lib/rag-backend";
 
 export const runtime = "nodejs";
 
@@ -12,12 +10,6 @@ interface RouteParams {
 
 export async function POST(req: Request, { params }: RouteParams) {
   const { manualId } = await params;
-
-  const manual = store.manuals.find((item) => item.id === manualId);
-  if (!manual) {
-    return NextResponse.json({ error: "Manual not found" }, { status: 404 });
-  }
-
   const parsedBody = DownloadTemplateFilesRequestSchema.safeParse(await req.json());
   if (!parsedBody.success) {
     return NextResponse.json(
@@ -29,53 +21,36 @@ export async function POST(req: Request, { params }: RouteParams) {
     );
   }
 
-  const requestedIds = new Set(parsedBody.data.fileIds);
-  const files = store.templates.filter(
-    (file) => file.manualId === manualId && requestedIds.has(file.id)
+  const response = await fetchRag(
+    `/api/v1/manuals/${encodeURIComponent(manualId)}/outputs/download`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file_ids: parsedBody.data.fileIds,
+        generated_only: parsedBody.data.generatedOnly ?? false,
+      }),
+    }
   );
 
-  if (files.length === 0) {
+  if (!response.ok) {
+    const body = await safeJson(response);
     return NextResponse.json(
-      { error: "No matching template files found" },
-      { status: 400 }
+      { error: (body as { error?: string }).error ?? "Download failed" },
+      { status: response.status }
     );
   }
 
-  const zip = new JSZip();
-  let addedCount = 0;
-
-  for (const file of files) {
-    const sourceBase64 =
-      file.generatedBase64 ??
-      (parsedBody.data.generatedOnly ? undefined : file.originalBase64);
-
-    if (!sourceBase64) {
-      continue;
-    }
-
-    zip.file(
-      sanitizeTemplatePath(file.path, file.name),
-      Buffer.from(sourceBase64, "base64")
-    );
-    addedCount += 1;
-  }
-
-  if (addedCount === 0) {
-    return NextResponse.json(
-      { error: "No files available for download with selected options" },
-      { status: 400 }
-    );
-  }
-
-  const archive = await zip.generateAsync({ type: "nodebuffer" });
-  const body = new Uint8Array(archive);
-
-  return new Response(body, {
+  const blob = await response.arrayBuffer();
+  return new Response(blob, {
     status: 200,
     headers: {
-      "Content-Type": "application/zip",
-      "Content-Disposition": `attachment; filename=\"manual-${manualId}-templates.zip\"`,
-      "Content-Length": String(archive.byteLength),
+      "Content-Type": response.headers.get("Content-Type") ?? "application/zip",
+      "Content-Disposition":
+        response.headers.get("Content-Disposition") ??
+        `attachment; filename="manual-${manualId}-templates.zip"`,
+      "Content-Length":
+        response.headers.get("Content-Length") ?? String(blob.byteLength),
     },
   });
 }

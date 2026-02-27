@@ -1,0 +1,13 @@
+{
+  "package_code": "SSCP",
+  "package_version": "v1",
+  "default_output_folder": "outputs",
+  "draft_groups": [
+    {
+      "name": "security_policy",
+      "tokens": ["SECURITY_SCOPE", "DATA_CLASSIFICATION_POLICY"],
+      "retrieval_role": "REFERENCE"
+    }
+  ],
+  "replacement_mode": "SIMPLE_TEXT"
+}

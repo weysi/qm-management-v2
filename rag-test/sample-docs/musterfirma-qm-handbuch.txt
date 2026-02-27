@@ -1,0 +1,62 @@
+Qualitätsmanagement-Handbuch
+Musterfirma GmbH
+
+Kapitel 4 - Kontext der Organisation
+
+4.1 Verstehen der Organisation und ihres Kontextes
+Die Musterfirma GmbH ist ein mittelständisches Unternehmen im Bereich Maschinenbau mit Sitz in Berlin. Das Unternehmen beschäftigt 75 Mitarbeiter und ist spezialisiert auf die Herstellung von Präzisionsteilen für die Automobilindustrie.
+
+Externe Themen:
+- Zunehmende Anforderungen an Umweltschutz und Nachhaltigkeit
+- Wettbewerbsdruck aus Fernost
+- Digitalisierung in der Fertigung (Industrie 4.0)
+- Steigende Rohstoffpreise
+
+Interne Themen:
+- Fachkräftemangel in der Region
+- Modernisierung des Maschinenparks geplant
+- Hohe Mitarbeiterzufriedenheit und geringe Fluktuation
+
+4.2 Interessierte Parteien
+Kunden: Automobilhersteller und Tier-1 Zulieferer
+Mitarbeiter: 75 Beschäftigte in Produktion, Verwaltung und QM
+Lieferanten: Stahlwerke und Werkzeughersteller
+Behörden: Gewerbeaufsicht, TÜV
+Gesellschafter: Familie Mustermann
+
+Kapitel 5 - Führung
+
+5.1 Führung und Verpflichtung
+Die Geschäftsführung unter Max Mustermann verpflichtet sich zur Wirksamkeit des QMS.
+
+5.2 Qualitätspolitik
+Unsere Qualitätspolitik:
+- Kundenzufriedenheit steht an erster Stelle
+- Null-Fehler-Strategie in der Fertigung
+- Kontinuierliche Verbesserung aller Prozesse
+- Einhaltung aller gesetzlichen Anforderungen
+- Förderung der Mitarbeiterkompetenz
+
+5.3 Rollen und Verantwortlichkeiten
+Geschäftsführer: Max Mustermann - Gesamtverantwortung QMS
+QM-Beauftragter: Erika Musterfrau - Operative QMS-Leitung
+Produktionsleiter: Bruno Musterkind - Prozessverantwortung Fertigung
+
+Kapitel 6 - Planung
+
+6.1 Risiken und Chancen
+Identifizierte Risiken:
+- Maschinenausfall: Medium-Risiko, Prävention durch Wartungsplan
+- Lieferantenausfall: Niedrig-Risiko, Dual-Sourcing implementiert
+- Qualitätsmängel: Hoch-Risiko, SPC und Endkontrolle
+
+Identifizierte Chancen:
+- Erweiterung Kundenstamm durch ISO-Zertifizierung
+- Effizienzsteigerung durch Automatisierung
+- Neue Märkte durch Elektromobilität
+
+6.2 Qualitätsziele 2025
+- Reklamationsquote unter 0,5%
+- Liefertreue über 98%
+- Mitarbeiterschulungen: mind. 20 Stunden pro Jahr
+- Ausschussquote unter 1%

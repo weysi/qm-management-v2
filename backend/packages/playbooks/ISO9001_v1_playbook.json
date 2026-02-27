@@ -1,0 +1,13 @@
+{
+  "package_code": "ISO9001",
+  "package_version": "v1",
+  "default_output_folder": "outputs",
+  "draft_groups": [
+    {
+      "name": "quality_policy",
+      "tokens": ["QUALITY_POLICY", "SCOPE"],
+      "retrieval_role": "REFERENCE"
+    }
+  ],
+  "replacement_mode": "SIMPLE_TEXT"
+}
