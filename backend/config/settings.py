@@ -114,7 +114,7 @@ REST_FRAMEWORK = {
 }
 
 
-# OPENAI_API_KEY = env("OPENAI_API_KEY", "")
+
 OPENAI_CHAT_MODEL = env("OPENAI_CHAT_MODEL", "gpt-4o-mini")
 OPENAI_ROUTER_MODEL = env("OPENAI_ROUTER_MODEL", "gpt-4o-mini")
 OPENAI_EMBED_MODEL = env("OPENAI_EMBED_MODEL", "text-embedding-3-small")
