@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "django.contrib.postgres",
     "rest_framework",
     "pgvector.django",
+    "drf_spectacular",
     "packages",
     "assets",
     "indexing",
@@ -110,11 +111,41 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
-    ]
+    ],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+}
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "QM RAG Backend API",
+    "VERSION": "1.0.0",
+    "DESCRIPTION": (
+        "RAG-powered backend for generating ISO compliance handbooks.\n\n"
+        "## Authentication\n"
+        "**No authentication required.** All endpoints are open.\n\n"
+        "## Tenant Isolation\n"
+        "Multi-tenancy is application-level via `tenant_id` parameters. "
+        "Data is isolated per tenant in PostgreSQL (`rag` schema) and on disk "
+        "(`data/tenants/<tenant_id>/`).\n\n"
+        "## Pipeline Flow\n"
+        "1. `start-package` → seeds variable keys + copies package files + indexes\n"
+        "2. `ingest` → re-index existing assets (optional, for force refresh)\n"
+        "3. `plan` → AI builds a generation plan from template placeholders\n"
+        "4. `generate` → resolves variables + fills OOXML templates → output files\n"
+        "5. `chat` → RAG Q&A over indexed documents\n"
+    ),
+    "SERVE_INCLUDE_SCHEMA": False,
+    "TAGS": [
+        {"name": "Health", "description": "Server health check"},
+        {"name": "Assets", "description": "File upload, listing, binary retrieval, and ZIP download"},
+        {"name": "Generation", "description": "Package initialization, ingestion, AI planning, and template generation"},
+        {"name": "RAG Chat", "description": "Retrieval-Augmented Generation chat interface"},
+        {"name": "Runs", "description": "Pipeline run tracking and event logs"},
+    ],
+    "COMPONENT_SPLIT_REQUEST": True,
 }
 
 
-
+OPENAI_API_KEY = env("OPENAI_API_KEY", "")
 OPENAI_CHAT_MODEL = env("OPENAI_CHAT_MODEL", "gpt-4o-mini")
 OPENAI_ROUTER_MODEL = env("OPENAI_ROUTER_MODEL", "gpt-4o-mini")
 OPENAI_EMBED_MODEL = env("OPENAI_EMBED_MODEL", "text-embedding-3-small")

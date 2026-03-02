@@ -1,0 +1,923 @@
+{
+  "baseline_ref": "HEAD",
+  "files": [
+    {
+      "path": "\"data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 10 2 0 Nichtkonformitaeten Korrekturma\\303\\237nahmen.docx\"",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "\"data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 7 0 Liste moegliche Sofortma\\303\\237nahmen.docx\"",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": ".gitignore",
+      "tokens_before": 97,
+      "tokens_after": 113,
+      "delta_tokens": 16
+    },
+    {
+      "path": "AGENT_OUTPUT.md",
+      "tokens_before": null,
+      "tokens_after": 287,
+      "delta_tokens": null
+    },
+    {
+      "path": "CLAUDE.md",
+      "tokens_before": 1268,
+      "tokens_after": 1200,
+      "delta_tokens": -68
+    },
+    {
+      "path": "backend/assets/__pycache__/views.cpython-313.pyc",
+      "tokens_before": null,
+      "tokens_after": 5276,
+      "delta_tokens": null
+    },
+    {
+      "path": "backend/assets/views.py",
+      "tokens_before": 2798,
+      "tokens_after": 4847,
+      "delta_tokens": 2049
+    },
+    {
+      "path": "backend/config/__pycache__/settings.cpython-313.pyc",
+      "tokens_before": null,
+      "tokens_after": 1515,
+      "delta_tokens": null
+    },
+    {
+      "path": "backend/config/__pycache__/urls.cpython-313.pyc",
+      "tokens_before": null,
+      "tokens_after": 256,
+      "delta_tokens": null
+    },
+    {
+      "path": "backend/config/settings.py",
+      "tokens_before": 1020,
+      "tokens_after": 1427,
+      "delta_tokens": 407
+    },
+    {
+      "path": "backend/config/urls.py",
+      "tokens_before": 77,
+      "tokens_after": 178,
+      "delta_tokens": 101
+    },
+    {
+      "path": "backend/generation/__pycache__/views.cpython-313.pyc",
+      "tokens_before": null,
+      "tokens_after": 4092,
+      "delta_tokens": null
+    },
+    {
+      "path": "backend/generation/views.py",
+      "tokens_before": 1667,
+      "tokens_after": 4313,
+      "delta_tokens": 2646
+    },
+    {
+      "path": "backend/indexing/services/__pycache__/ingestion.cpython-313.pyc",
+      "tokens_before": null,
+      "tokens_after": 4289,
+      "delta_tokens": null
+    },
+    {
+      "path": "backend/packages/__pycache__/services.cpython-313.pyc",
+      "tokens_before": null,
+      "tokens_after": 657,
+      "delta_tokens": null
+    },
+    {
+      "path": "backend/packages/catalog.py",
+      "tokens_before": 835,
+      "tokens_after": 835,
+      "delta_tokens": 0
+    },
+    {
+      "path": "backend/packages/playbooks/ISO14007_v1_playbook.json",
+      "tokens_before": 76,
+      "tokens_after": 0,
+      "delta_tokens": -76
+    },
+    {
+      "path": "backend/packages/playbooks/ISO9001_v1_playbook.json",
+      "tokens_before": 71,
+      "tokens_after": 0,
+      "delta_tokens": -71
+    },
+    {
+      "path": "backend/packages/playbooks/SSCP_v1_playbook.json",
+      "tokens_before": 75,
+      "tokens_after": 0,
+      "delta_tokens": -75
+    },
+    {
+      "path": "backend/packages/schemas/ISO9001_v1_variables.json",
+      "tokens_before": 447,
+      "tokens_after": 1299,
+      "delta_tokens": 852
+    },
+    {
+      "path": "backend/packages/services.py",
+      "tokens_before": 494,
+      "tokens_after": 494,
+      "delta_tokens": 0
+    },
+    {
+      "path": "backend/prompts/__pycache__/registry.cpython-313.pyc",
+      "tokens_before": null,
+      "tokens_after": 337,
+      "delta_tokens": null
+    },
+    {
+      "path": "backend/rag/__pycache__/views.cpython-313.pyc",
+      "tokens_before": null,
+      "tokens_after": 992,
+      "delta_tokens": null
+    },
+    {
+      "path": "backend/rag/views.py",
+      "tokens_before": 356,
+      "tokens_after": 939,
+      "delta_tokens": 583
+    },
+    {
+      "path": "backend/requirements.txt",
+      "tokens_before": 55,
+      "tokens_after": 62,
+      "delta_tokens": 7
+    },
+    {
+      "path": "backend/runs/__pycache__/views.cpython-313.pyc",
+      "tokens_before": null,
+      "tokens_after": 1120,
+      "delta_tokens": null
+    },
+    {
+      "path": "backend/runs/views.py",
+      "tokens_before": 354,
+      "tokens_after": 1255,
+      "delta_tokens": 901
+    },
+    {
+      "path": "data/tenants/550e8400-e29b-41d4-a716-446655440002/manuals/a8a5e7eb-0bef-46b4-8a14-7b792895fcae/templates/Referenz 9001.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/manual-0001/templates/test-upload.txt",
+      "tokens_before": 3,
+      "tokens_after": 0,
+      "delta_tokens": -3
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/AA 4 4 0 Anweisung Prozesserstellung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/AA 8 2 3 Angebotserstellung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/AA 8 3 4 Entwicklungssteuerung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/AA 8 3 5 Erstellung Betriebsanleitung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/AA 8 3 5 Erstellung Montageanleitung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/AA 8 3 5 Umsetzung CE Kennzeichnung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/AA 8 4 2 Kontrolle Bereitstellungen.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/AA 8 5 4 Produkterhaltung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/Deckblatt Arbeitsanweisungen.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/Deckblatt FB Nachweisformen.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/Deckblatt Handbuch.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/Erklaerung PA.pptx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 10 1 0 Liste der Verbesserungen.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 10 2 2 4D-Report.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 10 2 2 Massnahmenplan .docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 10 3 0 Fortlaufende Verbesserungen.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 6 1 0 Chancen und Risiken.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 6 1 0 Notfallplan.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 6 1 0 Risiken Massnahmen.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 6 2 0 Qualitaetsziele.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 6 3 0 Aenderungen am QM-System.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 7 1 2 Benennung Qualitaetsmanager- in.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 7 1 3 Liste Infrastruktur.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 7 1 4 Abfallplan.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 7 1 4 Praeventionskonzept.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 7 1 4 Sauberkeitskonzept.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 7 1 5 Messmittelkarte.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 7 1 6 Organisationswissen.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 7 2 0 Kompetenzen.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 7 4 0 Liste Kommunikationswege.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 7 4 0 Protokoll Besprechung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 7 5 1 Dokumentierte Informationen.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 1 0 Planung und Steuerung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 2 3 Leistungsuebersicht.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 2 3 Musterinstandhaltungsvertrag.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 3 2 Pflichtenheft Entwicklung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 4 2 Liste Anbieter Umfang Kontrolle.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 4 2 Liste Anbieter.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 1 Auftragsbegleitschein.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 1 Instandhaltung Produkt.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 1 Projektprotokoll.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 1 Rapport Beratung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 1 Softwarevalidierung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 1 Uebersicht Produkte.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 2 Begleitblatt Produktstatus.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 2 Kennz Rueckverfolgung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 2 Unterschriftenliste.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 5 Rueckmeldungen nach der Lieferung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 5 Taetigkeiten Installation.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 5 6 Ueberwachung Aenderungen.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 6 0 Protokoll Produktion.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 6 0 Pruefplan.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 7 0 Fehlerliste Dienstleistung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 8 7 0 Fehlerliste Produktion.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 9 1 2 Kundenzufriedenheit.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 9 2 2 Auditbericht.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 9 2 2 Auditcheckliste 9001 2015.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 9 2 2 Auditplan.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 9 2 2 Auditprogramm.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/FB 9 3 2 Managementbewertung.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/Handbuch Regelwerk.docx",
+      "tokens_before": null,
+      "tokens_after": 0,
+      "delta_tokens": null
+    },
+    {
+      "path": "data/tenants/default-tenant/manuals/rag-training-manual/templates/test-upload.txt",
+      "tokens_before": 5,
+      "tokens_after": 0,
+      "delta_tokens": -5
+    },
+    {
+      "path": "data/tenants/test-tenant-001/manuals/test-manual-001/references/references/iso9001-quality-manual.md",
+      "tokens_before": 1434,
+      "tokens_after": 0,
+      "delta_tokens": -1434
+    },
+    {
+      "path": "data/tenants/test-tenant-001/manuals/test-manual-001/references/references/musterfirma-qm-handbuch.txt",
+      "tokens_before": 538,
+      "tokens_after": 0,
+      "delta_tokens": -538
+    },
+    {
+      "path": "package-lock.json",
+      "tokens_before": 89202,
+      "tokens_after": 71624,
+      "delta_tokens": -17578
+    },
+    {
+      "path": "package.json",
+      "tokens_before": 419,
+      "tokens_after": 401,
+      "delta_tokens": -18
+    },
+    {
+      "path": "scripts/dead_surface_audit.sh",
+      "tokens_before": null,
+      "tokens_after": 262,
+      "delta_tokens": null
+    },
+    {
+      "path": "scripts/package_repo.sh",
+      "tokens_before": null,
+      "tokens_after": 111,
+      "delta_tokens": null
+    },
+    {
+      "path": "scripts/token_report.py",
+      "tokens_before": null,
+      "tokens_after": 1113,
+      "delta_tokens": null
+    },
+    {
+      "path": "src/app/(dashboard)/manuals/[id]/canvas-editor/[fileId]/page.tsx",
+      "tokens_before": 170,
+      "tokens_after": 0,
+      "delta_tokens": -170
+    },
+    {
+      "path": "src/app/api/canvas-editor/[projectId]/ai/audit/route.ts",
+      "tokens_before": 194,
+      "tokens_after": 0,
+      "delta_tokens": -194
+    },
+    {
+      "path": "src/app/api/canvas-editor/[projectId]/ai/rewrite/route.ts",
+      "tokens_before": 638,
+      "tokens_after": 0,
+      "delta_tokens": -638
+    },
+    {
+      "path": "src/app/api/canvas-editor/[projectId]/assets/[assetId]/route.ts",
+      "tokens_before": 264,
+      "tokens_after": 0,
+      "delta_tokens": -264
+    },
+    {
+      "path": "src/app/api/canvas-editor/[projectId]/assets/route.ts",
+      "tokens_before": 595,
+      "tokens_after": 0,
+      "delta_tokens": -595
+    },
+    {
+      "path": "src/app/api/canvas-editor/[projectId]/document/route.ts",
+      "tokens_before": 700,
+      "tokens_after": 0,
+      "delta_tokens": -700
+    },
+    {
+      "path": "src/app/api/canvas-editor/[projectId]/export/docx/route.ts",
+      "tokens_before": 706,
+      "tokens_after": 0,
+      "delta_tokens": -706
+    },
+    {
+      "path": "src/app/api/canvas-editor/[projectId]/export/pdf/route.ts",
+      "tokens_before": 877,
+      "tokens_after": 0,
+      "delta_tokens": -877
+    },
+    {
+      "path": "src/app/api/canvas-editor/[projectId]/init/route.ts",
+      "tokens_before": 749,
+      "tokens_after": 0,
+      "delta_tokens": -749
+    },
+    {
+      "path": "src/app/api/canvas-editor/[projectId]/sync/route.ts",
+      "tokens_before": 572,
+      "tokens_after": 0,
+      "delta_tokens": -572
+    },
+    {
+      "path": "src/app/api/canvas-editor/[projectId]/versions/[versionId]/restore/route.ts",
+      "tokens_before": 316,
+      "tokens_after": 0,
+      "delta_tokens": -316
+    },
+    {
+      "path": "src/app/api/canvas-editor/[projectId]/versions/route.ts",
+      "tokens_before": 741,
+      "tokens_after": 0,
+      "delta_tokens": -741
+    },
+    {
+      "path": "src/app/api/manual-generation/[manualId]/download/route.ts",
+      "tokens_before": 0,
+      "tokens_after": 430,
+      "delta_tokens": 430
+    },
+    {
+      "path": "src/app/api/manual-generation/[manualId]/execute/route.ts",
+      "tokens_before": 1295,
+      "tokens_after": 1564,
+      "delta_tokens": 269
+    },
+    {
+      "path": "src/app/api/manual-generation/[manualId]/plan/route.ts",
+      "tokens_before": 1300,
+      "tokens_after": 1462,
+      "delta_tokens": 162
+    },
+    {
+      "path": "src/app/api/rag-training/chat/route.ts",
+      "tokens_before": 130,
+      "tokens_after": 392,
+      "delta_tokens": 262
+    },
+    {
+      "path": "src/app/api/template-files/[manualId]/[fileId]/binary/route.ts",
+      "tokens_before": 311,
+      "tokens_after": 0,
+      "delta_tokens": -311
+    },
+    {
+      "path": "src/app/api/template-files/[manualId]/[fileId]/preview/route.ts",
+      "tokens_before": 116,
+      "tokens_after": 0,
+      "delta_tokens": -116
+    },
+    {
+      "path": "src/app/api/template-files/[manualId]/download/route.ts",
+      "tokens_before": 418,
+      "tokens_after": 0,
+      "delta_tokens": -418
+    },
+    {
+      "path": "src/app/api/template-files/[manualId]/generate/route.ts",
+      "tokens_before": 1254,
+      "tokens_after": 0,
+      "delta_tokens": -1254
+    },
+    {
+      "path": "src/app/api/template-files/[manualId]/rewrite/route.ts",
+      "tokens_before": 68,
+      "tokens_after": 0,
+      "delta_tokens": -68
+    },
+    {
+      "path": "src/app/api/template-files/[manualId]/route.ts",
+      "tokens_before": 1379,
+      "tokens_after": 0,
+      "delta_tokens": -1379
+    },
+    {
+      "path": "src/components/canvas-editor/AiScopePanel.tsx",
+      "tokens_before": 1399,
+      "tokens_after": 0,
+      "delta_tokens": -1399
+    },
+    {
+      "path": "src/components/canvas-editor/BlockOverlay.tsx",
+      "tokens_before": 816,
+      "tokens_after": 0,
+      "delta_tokens": -816
+    },
+    {
+      "path": "src/components/canvas-editor/CanvasEditorPage.tsx",
+      "tokens_before": 5273,
+      "tokens_after": 0,
+      "delta_tokens": -5273
+    },
+    {
+      "path": "src/components/canvas-editor/CanvasPageLayer.tsx",
+      "tokens_before": 1652,
+      "tokens_after": 0,
+      "delta_tokens": -1652
+    },
+    {
+      "path": "src/components/canvas-editor/FabricObjectLayer.tsx",
+      "tokens_before": 1245,
+      "tokens_after": 0,
+      "delta_tokens": -1245
+    },
+    {
+      "path": "src/components/canvas-editor/ObjectPropertiesPanel.tsx",
+      "tokens_before": 1911,
+      "tokens_after": 0,
+      "delta_tokens": -1911
+    },
+    {
+      "path": "src/components/canvas-editor/TiptapBlockEditor.tsx",
+      "tokens_before": 715,
+      "tokens_after": 0,
+      "delta_tokens": -715
+    },
+    {
+      "path": "src/components/canvas-editor/VersionHistoryPanel.tsx",
+      "tokens_before": 900,
+      "tokens_after": 0,
+      "delta_tokens": -900
+    },
+    {
+      "path": "src/hooks/index.ts",
+      "tokens_before": 50,
+      "tokens_after": 31,
+      "delta_tokens": -19
+    },
+    {
+      "path": "src/hooks/useCanvasEditor.ts",
+      "tokens_before": 1623,
+      "tokens_after": 0,
+      "delta_tokens": -1623
+    },
+    {
+      "path": "src/hooks/useManualGeneration.ts",
+      "tokens_before": 891,
+      "tokens_after": 0,
+      "delta_tokens": -891
+    },
+    {
+      "path": "src/hooks/useTemplateFiles.ts",
+      "tokens_before": 1906,
+      "tokens_after": 0,
+      "delta_tokens": -1906
+    },
+    {
+      "path": "src/lib/ai/canvas-prompts.ts",
+      "tokens_before": 762,
+      "tokens_after": 0,
+      "delta_tokens": -762
+    },
+    {
+      "path": "src/lib/ai/canvas-rewrite.ts",
+      "tokens_before": 2811,
+      "tokens_after": 0,
+      "delta_tokens": -2811
+    },
+    {
+      "path": "src/lib/ai/index.ts",
+      "tokens_before": 41,
+      "tokens_after": 23,
+      "delta_tokens": -18
+    },
+    {
+      "path": "src/lib/ai/manual-generation.ts",
+      "tokens_before": 967,
+      "tokens_after": 0,
+      "delta_tokens": -967
+    },
+    {
+      "path": "src/lib/ai/template-rewrite.ts",
+      "tokens_before": 707,
+      "tokens_after": 0,
+      "delta_tokens": -707
+    },
+    {
+      "path": "src/lib/canvas-editor/asset-extractor.ts",
+      "tokens_before": 1876,
+      "tokens_after": 0,
+      "delta_tokens": -1876
+    },
+    {
+      "path": "src/lib/canvas-editor/docx-export.ts",
+      "tokens_before": 3103,
+      "tokens_after": 0,
+      "delta_tokens": -3103
+    },
+    {
+      "path": "src/lib/canvas-editor/docx-import.ts",
+      "tokens_before": 5694,
+      "tokens_after": 0,
+      "delta_tokens": -5694
+    },
+    {
+      "path": "src/lib/canvas-editor/image-position.ts",
+      "tokens_before": 560,
+      "tokens_after": 0,
+      "delta_tokens": -560
+    },
+    {
+      "path": "src/lib/canvas-editor/pdf-export.ts",
+      "tokens_before": 655,
+      "tokens_after": 0,
+      "delta_tokens": -655
+    },
+    {
+      "path": "src/lib/canvas-editor/style-resolver.ts",
+      "tokens_before": 1490,
+      "tokens_after": 0,
+      "delta_tokens": -1490
+    },
+    {
+      "path": "src/lib/manual-generation/executor.ts",
+      "tokens_before": 1775,
+      "tokens_after": 0,
+      "delta_tokens": -1775
+    },
+    {
+      "path": "src/lib/manual-generation/index.ts",
+      "tokens_before": 20,
+      "tokens_after": 0,
+      "delta_tokens": -20
+    },
+    {
+      "path": "src/lib/manual-generation/planner.ts",
+      "tokens_before": 1624,
+      "tokens_after": 0,
+      "delta_tokens": -1624
+    },
+    {
+      "path": "src/lib/manual-generation/service.ts",
+      "tokens_before": 1153,
+      "tokens_after": 0,
+      "delta_tokens": -1153
+    },
+    {
+      "path": "src/lib/project-workspace/store-adapter.ts",
+      "tokens_before": 491,
+      "tokens_after": 0,
+      "delta_tokens": -491
+    },
+    {
+      "path": "src/lib/project-workspace/workspace.ts",
+      "tokens_before": 2098,
+      "tokens_after": 0,
+      "delta_tokens": -2098
+    },
+    {
+      "path": "src/lib/schemas/canvas-model.schema.ts",
+      "tokens_before": 2395,
+      "tokens_after": 0,
+      "delta_tokens": -2395
+    },
+    {
+      "path": "src/lib/schemas/project-workspace.schema.ts",
+      "tokens_before": 1321,
+      "tokens_after": 0,
+      "delta_tokens": -1321
+    },
+    {
+      "path": "src/lib/store.ts",
+      "tokens_before": 592,
+      "tokens_after": 242,
+      "delta_tokens": -350
+    },
+    {
+      "path": "src/types/docx-preview.d.ts",
+      "tokens_before": 114,
+      "tokens_after": 0,
+      "delta_tokens": -114
+    }
+  ]
+}

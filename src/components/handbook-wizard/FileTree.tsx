@@ -21,6 +21,7 @@ interface FileTreeProps {
 	selectedIds?: Set<string>;
 	onSelect?: (assetId: string, selected: boolean) => void;
 	onSelectAll?: (selected: boolean) => void;
+	onFilePreview?: (asset: RagAssetItem) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -180,6 +181,7 @@ function TreeNodeComponent({
 	toggleExpand,
 	selectedIds,
 	onSelect,
+	onFilePreview,
 }: {
 	node: TreeNode;
 	depth: number;
@@ -187,6 +189,7 @@ function TreeNodeComponent({
 	toggleExpand: (path: string) => void;
 	selectedIds?: Set<string>;
 	onSelect?: (assetId: string, selected: boolean) => void;
+	onFilePreview?: (asset: RagAssetItem) => void;
 }) {
 	const isDir = node.children.length > 0 || !node.asset;
 	const isOpen = expanded.has(node.path);
@@ -212,6 +215,8 @@ function TreeNodeComponent({
 				onClick={() => {
 					if (isDir) {
 						toggleExpand(node.path);
+					} else if (hasAsset && onFilePreview) {
+						onFilePreview(node.asset!);
 					} else if (hasAsset && onSelect) {
 						onSelect(node.asset!.id, !selectedIds?.has(node.asset!.id));
 					}
@@ -284,6 +289,7 @@ function TreeNodeComponent({
 							toggleExpand={toggleExpand}
 							selectedIds={selectedIds}
 							onSelect={onSelect}
+							onFilePreview={onFilePreview}
 						/>
 					))}
 				</div>
@@ -301,6 +307,7 @@ export function FileTree({
 	selectedIds,
 	onSelect,
 	onSelectAll,
+	onFilePreview,
 }: FileTreeProps) {
 	const [expanded, setExpanded] = useState<Set<string>>(() => {
 		// Expand top-level folders by default
@@ -396,6 +403,7 @@ export function FileTree({
 							toggleExpand={toggleExpand}
 							selectedIds={selectedIds}
 							onSelect={onSelect}
+							onFilePreview={onFilePreview}
 						/>
 					))
 				)}

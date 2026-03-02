@@ -4,5 +4,5 @@ from runs import views
 
 
 urlpatterns = [
-    path("manuals/<str:manual_id>/runs/<uuid:run_id>", views.get_run),
+    path("handbooks/<str:handbook_id>/runs/<uuid:run_id>", views.get_run),
 ]

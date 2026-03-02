@@ -118,6 +118,5 @@ OPENAI_API_KEY=sk-...    # Required for AI generation — set in .env.local, nev
 NEXT_PUBLIC_APP_URL=      # Base URL (used in meta & API calls)
 ```
 
-## Mock Data
 
-During development, all data is driven from `src/lib/mock-data/`. Use mock clients, placeholder maps, and template sections before wiring real persistence. TanStack Query hooks accept a `useMock` flag that short-circuits the API call and returns mock fixtures.
+

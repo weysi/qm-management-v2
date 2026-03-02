@@ -8,6 +8,6 @@ urlpatterns = [
     path("assets/presign-upload", views.presign_upload_stub),
     path("assets/presign-download", views.presign_download_stub),
     path("assets/<uuid:asset_id>/binary", views.get_asset_binary),
-    path("manuals/<str:manual_id>/assets", views.list_manual_assets),
-    path("manuals/<str:manual_id>/outputs/download", views.download_manual_outputs),
+    path("handbooks/<str:handbook_id>/assets", views.list_handbook_assets),
+    path("handbooks/<str:handbook_id>/outputs/download", views.download_handbook_outputs),
 ]

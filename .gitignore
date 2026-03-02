@@ -36,3 +36,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+backend/config/settings.py
+# local data
+/data
+#zip files
+*.zip

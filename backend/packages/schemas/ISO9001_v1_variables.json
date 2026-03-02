@@ -3,6 +3,34 @@
 	"package_version": "v1",
 	"variables": [
 		{
+			"token": "PACKAGE_NAME",
+			"type": "string",
+			"required": true,
+			"description": "Name of the package",
+			"examples": ["ISO9001"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+
+		{
+			"token": "COMPANY_SIGNATURE",
+			"type": "string",
+			"required": true,
+			"description": "Company signature or logo",
+			"examples": ["Muster GmbH Logo"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "COMPANY_LOGO",
+			"type": "string",
+			"required": true,
+			"description": "Company logo image URL or base64 string",
+			"examples": ["https://example.com/logo.png"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
 			"token": "COMPANY_NAME",
 			"type": "string",
 			"required": true,
@@ -17,6 +45,78 @@
 			"required": true,
 			"description": "Full company address",
 			"examples": ["Musterstrasse 10, 12345 Berlin"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "COMPANY_ZIP_CITY",
+			"type": "string",
+			"required": true,
+			"description": "Postal code and city",
+			"examples": ["12345 Berlin"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "CEO_NAME",
+			"type": "string",
+			"required": true,
+			"description": "Chief Executive Officer's name",
+			"examples": ["Max Mustermann"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "QM_MANAGER_NAME",
+			"type": "string",
+			"required": true,
+			"description": "Quality manager name",
+			"examples": ["Erika Beispiel"],
+			"default_value": null,
+			"generation_policy": "AI_INFER"
+		},
+		{
+			"token": "GF_NAME",
+			"type": "string",
+			"required": true,
+			"description": "Name of the managing director",
+			"examples": ["Max Mustermann"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "EMPLOYEE_COUNT",
+			"type": "number",
+			"required": true,
+			"description": "Number of employees",
+			"examples": [25],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "INDUSTRY",
+			"type": "string",
+			"required": true,
+			"description": "Industry sector",
+			"examples": ["Maschinenbau"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "PRODUCTS",
+			"type": "string",
+			"required": false,
+			"description": "Main products",
+			"examples": ["Hydraulikpumpen, Ventile"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "SERVICES",
+			"type": "string",
+			"required": false,
+			"description": "Main services",
+			"examples": ["Wartung, Instandhaltung"],
 			"default_value": null,
 			"generation_policy": "DETERMINISTIC"
 		},
@@ -37,15 +137,6 @@
 			"examples": [],
 			"default_value": null,
 			"generation_policy": "AI_DRAFT"
-		},
-		{
-			"token": "QM_MANAGER_NAME",
-			"type": "string",
-			"required": true,
-			"description": "Quality manager name",
-			"examples": [],
-			"default_value": null,
-			"generation_policy": "AI_INFER"
 		},
 		{
 			"token": "PROCESSES",
@@ -73,6 +164,52 @@
 			"examples": [],
 			"default_value": null,
 			"generation_policy": "AI_DRAFT"
+		},
+
+		{
+			"token": "REVISION",
+			"type": "string",
+			"required": true,
+			"description": "Document revision number",
+			"examples": ["1.0"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "VALIDITY_DATE",
+			"type": "string",
+			"required": true,
+			"description": "Date of document creation or revision",
+			"examples": ["2024-01-01"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "APPROVAL",
+			"type": "string",
+			"required": true,
+			"description": "Approval statement",
+			"examples": ["Approved by CEO"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
+		},
+		{
+			"token": "DATE",
+			"type": "string",
+			"required": true,
+			"description": "Current date in YYYY-MM-DD format",
+			"examples": ["2024-01-01"],
+			"default_value": null,
+			"generation_policy": "CURRENT_DATE"
+		},
+		{
+			"token": "DISTRIBUTION",
+			"type": "string",
+			"required": true,
+			"description": "Distribution list or method",
+			"examples": ["Internal distribution, available on intranet"],
+			"default_value": null,
+			"generation_policy": "DETERMINISTIC"
 		}
 	]
 }

@@ -4,8 +4,8 @@ from generation import views
 
 
 urlpatterns = [
-    path("manuals/<str:manual_id>/start-package", views.start_package),
-    path("manuals/<str:manual_id>/ingest", views.ingest_manual),
-    path("manuals/<str:manual_id>/plan", views.plan_manual),
-    path("manuals/<str:manual_id>/generate", views.generate_manual),
+    path("handbooks/<str:handbook_id>/start-package", views.start_package),
+    path("handbooks/<str:handbook_id>/ingest", views.ingest_handbook),
+    path("handbooks/<str:handbook_id>/plan", views.plan_handbook),
+    path("handbooks/<str:handbook_id>/generate", views.generate_handbook),
 ]

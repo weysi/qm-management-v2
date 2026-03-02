@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { useCreateHandbook } from '@/hooks/useHandbook';
 import {
 	Dialog,
 	DialogContent,
@@ -30,52 +31,43 @@ export function CreateHandbookDialog({
 	client,
 }: CreateHandbookDialogProps) {
 	const router = useRouter();
+	const createHandbook = useCreateHandbook();
 	const [step, setStep] = useState<Step>('package');
 	const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
-	const [isCreating, setIsCreating] = useState(false);
 
 	const pkg = selectedPackage ? getPackageInfo(selectedPackage) : null;
+	const isCreating = createHandbook.isPending;
 
 	function handleClose() {
+		if (isCreating) return;
 		setStep('package');
 		setSelectedPackage(null);
-		setIsCreating(false);
 		onOpenChange(false);
 	}
 
-	async function handleCreate() {
+	function handleCreate() {
 		if (!pkg) return;
 		setStep('creating');
-		setIsCreating(true);
-
-		try {
-			const res = await fetch('/api/manuals', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					clientId: client.id,
-					packageCode: pkg.code,
-					packageVersion: pkg.version,
-				}),
-			});
-
-			if (!res.ok) {
-				const err = await res.json().catch(() => ({}));
-				throw new Error(
-					(err as { error?: string }).error ??
-						'Handbuch konnte nicht erstellt werden',
-				);
-			}
-
-			const manual = await res.json();
-			toast.success('Handbuch erstellt!');
-			handleClose();
-			router.push(`/manuals/${manual.id}`);
-		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Unbekannter Fehler');
-			setStep('review');
-			setIsCreating(false);
-		}
+		createHandbook.mutate(
+			{
+				clientId: client.id,
+				packageCode: pkg.code,
+				packageVersion: pkg.version,
+			},
+			{
+				onSuccess(manual) {
+					toast.success('Handbuch erstellt!');
+					handleClose();
+					router.push(`/handbooks/${manual.id}`);
+				},
+				onError(err) {
+					toast.error(
+						err instanceof Error ? err.message : 'Unbekannter Fehler',
+					);
+					setStep('review');
+				},
+			},
+		);
 	}
 
 	const clientFields = [

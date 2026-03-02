@@ -34,18 +34,17 @@ export function resolvePlaceholders(
  */
 export function buildPlaceholderMap(client: Client): Record<string, string> {
 	return {
-		FIRMA_NAME: client.name,
-		FIRMA_STRASSE: client.address,
-		FIRMA_PLZ_ORT: client.zipCity,
-		GESCHAEFTSFUEHRER_NAME: client.ceo,
+		COMPANY_NAME: client.name,
+		COMPANY_ADDRESS: client.address,
+		COMPANY_ZIP_CITY: client.zipCity,
+		CEO_NAME: client.ceo,
 		QM_MANAGER_NAME: client.qmManager,
-		MITARBEITER_ANZAHL: String(client.employeeCount),
-		PRODUKT_BESCHREIBUNG: client.products,
-		DIENSTLEISTUNG_BESCHREIBUNG: client.services,
-		BRANCHE: client.industry,
-		FB_PREFIX: 'FB',
-		FB_4_0: 'FB 4.1.0 / 4.2.0',
-		FSADFD: 'adfaf',
+		EMPLOYEE_COUNT: String(client.employeeCount),
+		PRODUCTS: client.products,
+		SERVICES: client.services,
+		INDUSTRY: client.industry,
+		REVISION: '1.0',
+		VALIDITY_DATE: new Date().toISOString().split('T')[0],
 	};
 }
 

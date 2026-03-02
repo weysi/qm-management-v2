@@ -26,8 +26,8 @@ def load_variable_schema(package_code: str, package_version: str) -> dict:
 
 def load_playbook(package_code: str, package_version: str) -> dict:
     config = get_package_config(package_code, package_version)
-    playbook_path = _resolve_path(config["playbook_path"])
-    return json.loads(playbook_path.read_text(encoding="utf-8"))
+    handbook_path = _resolve_path(config["handbook_path"])
+    return json.loads(handbook_path.read_text(encoding="utf-8"))
 
 
 def seed_variable_keys(package_code: str, package_version: str) -> list[RagVariableKey]:

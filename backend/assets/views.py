@@ -7,13 +7,20 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from django.conf import settings
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404
-from rest_framework import status
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+    inline_serializer,
+)
+from rest_framework import serializers, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from assets.services.storage import LocalStorage
 from common.hashing import file_sha256
-from generation.services.manuals import ensure_manual
+from generation.services.handbooks import ensure_handbook
 from indexing.services.ingestion import ingest_single_asset
 from rag.models import (
     RagAsset,
@@ -82,10 +89,45 @@ def _asset_payload(asset: RagAsset, resolved_tokens: set[str]) -> dict:
     }
 
 
+@extend_schema(
+    tags=["Assets"],
+    summary="List manual assets",
+    description=(
+        "Returns all assets linked to a manual. Optionally filter by `role` query parameter.\n\n"
+        "Each asset includes its detected `{{PLACEHOLDER}}` tokens, which ones remain unresolved, "
+        "whether a generated output version exists, and file metadata."
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="manual_id", location=OpenApiParameter.PATH, type=str, required=True,
+            description="Manual ID (e.g. `manual-0001`)",
+        ),
+        OpenApiParameter(
+            name="role", location=OpenApiParameter.QUERY, type=str, required=False,
+            description="Filter by asset role",
+            enum=["TEMPLATE", "REFERENCE", "CUSTOMER_REFERENCE", "GENERATED_OUTPUT"],
+        ),
+    ],
+    responses={
+        200: inline_serializer(
+            name="ListAssetsResponse",
+            fields={
+                "assets": serializers.ListField(
+                    child=serializers.DictField(),
+                    help_text=(
+                        "Array of asset objects with fields: id, manual_id, tenant_id, path, name, "
+                        "ext, mime_type, size, role, source, created_at, placeholders (token list), "
+                        "unresolved_placeholders, has_generated_version, last_generated_at, generated_asset_id"
+                    ),
+                ),
+            },
+        ),
+    },
+)
 @api_view(["GET"])
-def list_manual_assets(request, manual_id: str):
+def list_handbook_assets(request, handbook_id: str):
     role = request.query_params.get("role")
-    manual = RagManual.objects.filter(id=manual_id).first()
+    manual = RagManual.objects.filter(id=handbook_id).first()
     if manual is None:
         return Response({"assets": []}, status=status.HTTP_200_OK)
 
@@ -100,6 +142,32 @@ def list_manual_assets(request, manual_id: str):
     return Response({"assets": assets}, status=status.HTTP_200_OK)
 
 
+@extend_schema(
+    tags=["Assets"],
+    summary="Get asset binary",
+    description=(
+        "Download the binary content of an asset file.\n\n"
+        "Use `?version=original` (default) to get the source template, or "
+        "`?version=generated` to get the AI-generated output version.\n\n"
+        "If the asset is a GENERATED_OUTPUT and `version=original` is requested, "
+        "the system follows the `source_asset` FK to return the original template."
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="asset_id", location=OpenApiParameter.PATH, type=OpenApiTypes.UUID, required=True,
+            description="UUID of the asset",
+        ),
+        OpenApiParameter(
+            name="version", location=OpenApiParameter.QUERY, type=str, required=False,
+            description="Which version to retrieve", enum=["original", "generated"], default="original",
+        ),
+    ],
+    responses={
+        (200, "application/octet-stream"): OpenApiResponse(description="Binary file content with appropriate Content-Type header"),
+        400: inline_serializer(name="InvalidVersionError", fields={"error": serializers.CharField()}),
+        404: inline_serializer(name="AssetNotFoundError", fields={"detail": serializers.CharField()}),
+    },
+)
 @api_view(["GET"])
 def get_asset_binary(request, asset_id: str):
     asset = get_object_or_404(RagAsset, id=asset_id)
@@ -140,6 +208,71 @@ def get_asset_binary(request, asset_id: str):
     return response
 
 
+@extend_schema(
+    tags=["Assets"],
+    summary="Upload file (local storage)",
+    description=(
+        "Upload a file to a manual via multipart/form-data.\n\n"
+        "The file is stored on local disk under `data/tenants/<tenant_id>/manuals/<manual_id>/<role_folder>/`.\n\n"
+        "After upload, the file is immediately indexed: text extracted, chunks created, "
+        "embeddings generated, and placeholders detected. The indexing run is tracked via `run_id`.\n\n"
+        "**Fields:**\n"
+        "- `file` (required): The file to upload\n"
+        "- `manual_id` (required): Target manual ID\n"
+        "- `tenant_id`: Tenant ID (default: `default-tenant`)\n"
+        "- `package_code`: Package code (default: `ISO9001`)\n"
+        "- `package_version`: Package version (default: `v1`)\n"
+        "- `role`: Asset role — TEMPLATE, REFERENCE, or CUSTOMER_REFERENCE (default: TEMPLATE)\n"
+        "- `path`: Relative path within the role folder (default: original filename)"
+    ),
+    request={
+        "multipart/form-data": inline_serializer(
+            name="LocalUploadRequest",
+            fields={
+                "file": serializers.FileField(help_text="The file to upload"),
+                "manual_id": serializers.CharField(help_text="Target manual ID"),
+                "tenant_id": serializers.CharField(
+                    required=False, default="default-tenant",
+                    help_text="Tenant ID (default: default-tenant)",
+                ),
+                "package_code": serializers.CharField(
+                    required=False, default="ISO9001",
+                    help_text="Package code (default: ISO9001)",
+                ),
+                "package_version": serializers.CharField(
+                    required=False, default="v1",
+                    help_text="Package version (default: v1)",
+                ),
+                "role": serializers.ChoiceField(
+                    choices=["TEMPLATE", "REFERENCE", "CUSTOMER_REFERENCE"],
+                    required=False, default="TEMPLATE",
+                    help_text="Asset role",
+                ),
+                "path": serializers.CharField(
+                    required=False,
+                    help_text="Relative path within the role folder (default: original filename)",
+                ),
+            },
+        ),
+    },
+    responses={
+        201: inline_serializer(
+            name="UploadResponse",
+            fields={
+                "asset": serializers.DictField(help_text="Full asset payload with placeholders and metadata"),
+                "run_id": serializers.UUIDField(help_text="ID of the indexing run created for this upload"),
+            },
+        ),
+        400: inline_serializer(name="UploadBadRequest", fields={"error": serializers.CharField()}),
+        500: inline_serializer(
+            name="UploadIndexingError",
+            fields={
+                "error": serializers.CharField(help_text="Indexing failure message"),
+                "asset_id": serializers.UUIDField(help_text="The asset was created but indexing failed"),
+            },
+        ),
+    },
+)
 @api_view(["POST"])
 def local_upload(request):
     uploaded = request.FILES.get("file")
@@ -163,8 +296,8 @@ def local_upload(request):
     if role not in allowed_roles:
         return Response({"error": "Invalid role"}, status=status.HTTP_400_BAD_REQUEST)
 
-    manual = ensure_manual(
-        manual_id=manual_id,
+    manual = ensure_handbook(
+        handbook_id=manual_id,
         tenant_id=tenant_id,
         package_code=package_code,
         package_version=package_version,
@@ -231,6 +364,13 @@ def local_upload(request):
     )
 
 
+@extend_schema(
+    tags=["Assets"],
+    summary="Presign upload (not implemented)",
+    description="S3 presigned upload endpoint. Returns 501 — not available in local-first mode.",
+    request=None,
+    responses={501: inline_serializer(name="PresignUploadStub", fields={"error": serializers.CharField(), "todo": serializers.CharField()})},
+)
 @api_view(["POST"])
 def presign_upload_stub(_request):
     return Response(
@@ -242,6 +382,13 @@ def presign_upload_stub(_request):
     )
 
 
+@extend_schema(
+    tags=["Assets"],
+    summary="Presign download (not implemented)",
+    description="S3 presigned download endpoint. Returns 501 — not available in local-first mode.",
+    request=None,
+    responses={501: inline_serializer(name="PresignDownloadStub", fields={"error": serializers.CharField(), "todo": serializers.CharField()})},
+)
 @api_view(["POST"])
 def presign_download_stub(_request):
     return Response(
@@ -269,9 +416,48 @@ def _resolve_download_target(template_asset: RagAsset, generated_only: bool) -> 
     return Path(template_asset.local_path), template_asset.package_rel_path
 
 
+@extend_schema(
+    tags=["Assets"],
+    summary="Download manual outputs as ZIP",
+    description=(
+        "Generates a ZIP archive containing selected assets from a manual.\n\n"
+        "For TEMPLATE assets, the system prefers the generated output version. "
+        "If `generated_only=true`, templates without a generated version are skipped.\n\n"
+        "For GENERATED_OUTPUT assets, the file is included directly. "
+        "The ZIP preserves the original `package_rel_path` tree structure."
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="manual_id", location=OpenApiParameter.PATH, type=str, required=True,
+            description="Manual ID",
+        ),
+    ],
+    request=inline_serializer(
+        name="DownloadOutputsRequest",
+        fields={
+            "file_ids": serializers.ListField(
+                child=serializers.UUIDField(),
+                help_text="Array of asset UUIDs to include in the ZIP",
+            ),
+            "generated_only": serializers.BooleanField(
+                required=False, default=False,
+                help_text="If true, skip templates that lack a generated version",
+            ),
+        },
+    ),
+    responses={
+        (200, "application/zip"): OpenApiResponse(
+            description="ZIP archive containing the selected files, preserving path structure"
+        ),
+        400: inline_serializer(
+            name="DownloadOutputsBadRequest",
+            fields={"error": serializers.CharField()},
+        ),
+    },
+)
 @api_view(["POST"])
-def download_manual_outputs(request, manual_id: str):
-    manual = get_object_or_404(RagManual, id=manual_id)
+def download_handbook_outputs(request, handbook_id: str):
+    manual = get_object_or_404(RagManual, id=handbook_id)
     file_ids = request.data.get("file_ids", [])
     generated_only = bool(request.data.get("generated_only", False))
 

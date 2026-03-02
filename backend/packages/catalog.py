@@ -19,7 +19,7 @@ STANDARD_PACKAGES: dict[str, dict[str, Any]] = {
                 "template_file_exts": ["docx", "pptx", "xlsx"],
                 "reference_file_exts": ["pdf", "docx", "doc"],
                 "variable_schema_path": "backend/packages/schemas/ISO9001_v1_variables.json",
-                "playbook_path": "backend/packages/playbooks/ISO9001_v1_playbook.json",
+                "handbook_path": "backend/packages/handbooks/ISO9001_v1_handbook.json",
                 "chunking": {"target_chars": 2400, "overlap_chars": 300},
             }
         }
@@ -38,7 +38,7 @@ STANDARD_PACKAGES: dict[str, dict[str, Any]] = {
                 "template_file_exts": ["docx", "pptx", "xlsx"],
                 "reference_file_exts": ["pdf", "docx", "doc"],
                 "variable_schema_path": "backend/packages/schemas/SSCP_v1_variables.json",
-                "playbook_path": "backend/packages/playbooks/SSCP_v1_playbook.json",
+                "handbook_path": "backend/packages/handbooks/SSCP_v1_handbook.json",
                 "chunking": {"target_chars": 2400, "overlap_chars": 300},
             }
         }
@@ -57,7 +57,7 @@ STANDARD_PACKAGES: dict[str, dict[str, Any]] = {
                 "template_file_exts": ["docx", "pptx", "xlsx"],
                 "reference_file_exts": ["pdf", "docx", "doc"],
                 "variable_schema_path": "backend/packages/schemas/ISO14007_v1_variables.json",
-                "playbook_path": "backend/packages/playbooks/ISO14007_v1_playbook.json",
+                "handbook_path": "backend/packages/handbooks/ISO14007_v1_handbook.json",
                 "chunking": {"target_chars": 2400, "overlap_chars": 300},
             }
         }

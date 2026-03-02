@@ -251,7 +251,7 @@ backend/
 ├── packages/                     # Paket sistemi
 │   ├── catalog.py                # ISO9001, SSCP, ISO14007 config
 │   ├── schemas/                  # Variable tanımları (JSON)
-│   └── playbooks/                # Üretim planı (JSON)
+│   └── handbooks/                # Üretim planı (JSON)
 │
 ├── prompts/                      # AI prompt'ları
 │   ├── router_v1.md              # Soru sınıflandırma

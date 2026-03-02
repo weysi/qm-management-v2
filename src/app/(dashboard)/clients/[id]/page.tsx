@@ -3,7 +3,7 @@
 import { use, useState } from 'react';
 import Link from "next/link";
 import { useClient } from "@/hooks/useClients";
-import { useManuals } from '@/hooks/useManual';
+import { useHandbooks } from '@/hooks/useHandbook';
 import { Header } from "@/components/layout/Header";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ interface PageProps {
 export default function ClientDetailPage({ params }: PageProps) {
   const { id } = use(params);
   const { data: client, isLoading } = useClient(id);
-  const { data: allManuals = [] } = useManuals();
+  const { data: allManuals = [] } = useHandbooks();
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const clientManuals = allManuals.filter((m) => m.clientId === id);
@@ -109,7 +109,7 @@ export default function ClientDetailPage({ params }: PageProps) {
 								return (
 									<Link
 										key={m.id}
-										href={`/manuals/${m.id}`}
+										href={`/handbooks/${m.id}`}
 										className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors"
 									>
 										<div>
