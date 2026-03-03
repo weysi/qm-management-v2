@@ -6,7 +6,12 @@ export function useRenderDocument(handbookId: string) {
   return useMutation<
     RenderDocumentResponse,
     Error,
-    { documentId: string; variables: Record<string, string>; assetOverrides?: Record<string, string> }
+    {
+      documentId: string;
+      variables: Record<string, string>;
+      assetOverrides?: Record<string, string>;
+      generationPolicy?: { onMissingAsset?: 'FAIL' | 'KEEP_PLACEHOLDER' };
+    }
   >({
     mutationFn: payload => renderDocument(payload),
     onSuccess: (_data, variables) => {

@@ -7,18 +7,59 @@ import {
   WorkspaceAssetSchema,
 } from '@/lib/schemas';
 
-export const UploadDocumentResponseSchema = z.object({
+const UploadSummarySchema = z.object({
+  documents_created: z.number().int().nonnegative(),
+  assets_bound: z.number().int().nonnegative(),
+  warnings: z.number().int().nonnegative(),
+});
+
+const UploadVariableSchema = z.object({
+  id: z.string().uuid(),
+  variable_name: z.string(),
+  required: z.boolean(),
+  source: z.enum(['user_input', 'system', 'ai_generated']),
+  type: z.string(),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+});
+
+const UploadWarningSchema = z.object({
+  path: z.string(),
+  code: z.string(),
+  message: z.string(),
+});
+
+const UploadDocumentFileResponseSchema = z.object({
+  kind: z.literal('file'),
   document: DocumentSchema,
-  variables: z.array(
-    z.object({
-      id: z.string().uuid(),
-      variable_name: z.string(),
-      required: z.boolean(),
-      source: z.enum(['user_input', 'system', 'ai_generated']),
-      type: z.string(),
-      metadata: z.record(z.string(), z.unknown()).default({}),
-    }),
-  ),
+  variables: z.array(UploadVariableSchema),
+  summary: UploadSummarySchema,
+});
+
+const UploadDocumentZipResponseSchema = z.object({
+  kind: z.literal('zip'),
+  documents: z.array(DocumentSchema),
+  assets: z.array(WorkspaceAssetSchema),
+  warnings: z.array(UploadWarningSchema).default([]),
+  summary: UploadSummarySchema,
+});
+
+export const UploadDocumentResponseSchema = z.union([
+  UploadDocumentFileResponseSchema,
+  UploadDocumentZipResponseSchema,
+]);
+
+export const UploadDocumentWarningSchema = UploadWarningSchema;
+export const UploadDocumentSummarySchema = UploadSummarySchema;
+
+export const UploadDocumentFileOnlyResponseSchema = UploadDocumentFileResponseSchema;
+export const UploadDocumentZipOnlyResponseSchema = UploadDocumentZipResponseSchema;
+
+export type UploadDocumentFileResponse = z.infer<typeof UploadDocumentFileResponseSchema>;
+export type UploadDocumentZipResponse = z.infer<typeof UploadDocumentZipResponseSchema>;
+export type UploadDocumentSummary = z.infer<typeof UploadSummarySchema>;
+export type UploadDocumentWarning = z.infer<typeof UploadWarningSchema>;
+export const UploadDocumentVariablesResponseSchema = z.object({
+  variables: z.array(UploadVariableSchema),
 });
 
 export const ListDocumentsResponseSchema = z.object({

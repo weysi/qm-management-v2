@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { listWorkspaceAssets, uploadWorkspaceAsset } from '@/lib/documents';
+import {
+  deleteWorkspaceAsset,
+  listWorkspaceAssets,
+  uploadWorkspaceAsset,
+} from '@/lib/documents';
 import type { WorkspaceAsset } from '@/lib/schemas';
 
 const ASSETS_KEY = 'workspace-assets';
@@ -21,6 +25,22 @@ export function useUploadWorkspaceAsset(handbookId: string) {
   >({
     mutationFn: payload => uploadWorkspaceAsset({ handbookId, ...payload }),
     onSuccess: () => {
+      if (process.env.NODE_ENV !== 'production') {
+        console.info('[assets] invalidating cache after upload', { handbookId });
+      }
+      qc.invalidateQueries({ queryKey: [ASSETS_KEY, handbookId] });
+    },
+  });
+}
+
+export function useDeleteWorkspaceAsset(handbookId: string) {
+  const qc = useQueryClient();
+  return useMutation<void, Error, { assetType: 'logo' | 'signature' }>({
+    mutationFn: payload => deleteWorkspaceAsset({ handbookId, ...payload }),
+    onSuccess: () => {
+      if (process.env.NODE_ENV !== 'production') {
+        console.info('[assets] invalidating cache after delete', { handbookId });
+      }
       qc.invalidateQueries({ queryKey: [ASSETS_KEY, handbookId] });
     },
   });

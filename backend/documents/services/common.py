@@ -4,7 +4,9 @@ from pathlib import Path, PurePosixPath
 
 from django.conf import settings
 
-SUPPORTED_UPLOAD_EXTS = {".docx", ".md", ".txt", ".html", ".htm"}
+SUPPORTED_TEMPLATE_EXTS = {".docx", ".pptx", ".xlsx", ".md", ".txt", ".html", ".htm"}
+SUPPORTED_UPLOAD_EXTS = SUPPORTED_TEMPLATE_EXTS | {".zip"}
+SUPPORTED_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"}
 TEXT_EXTS = {".md", ".txt", ".html", ".htm"}
 
 

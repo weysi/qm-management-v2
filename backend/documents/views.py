@@ -12,8 +12,15 @@ from rest_framework.response import Response
 
 from .models import Document, DocumentVersion
 from .serializers import DocumentSerializer, DocumentVersionSerializer, WorkspaceAssetSerializer
-from .services.asset_service import AssetValidationError, list_assets, upload_asset
+from .services.asset_service import (
+    AssetValidationError,
+    get_active_asset,
+    list_assets,
+    soft_delete_asset,
+    upload_asset,
+)
 from .services.file_tree_service import build_tree, soft_delete_path
+from .services.generation_policy import GenerationPolicyValidationError, parse_generation_policy
 from .services.render_service import RenderValidationError, render_document
 from .services.rewrite_service import RewriteValidationError, rewrite_document
 from .services.token_metrics import estimate_token_count_from_bytes, log_token_metrics
@@ -39,7 +46,7 @@ def upload_document_view(request):
         return Response({"error": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        document, variables = upload_document(
+        result = upload_document(
             handbook_id=handbook_id,
             uploaded=uploaded,
             relative_path=relative_path,
@@ -51,26 +58,53 @@ def upload_document_view(request):
 
     _dev_log(
         "DOCUMENT_UPLOAD",
+        kind=result.kind,
         handbook_id=handbook_id,
         path=relative_path or uploaded.name,
         filename=uploaded.name,
-        document_id=str(document.id),
+        documents_created=len(result.documents),
+        assets_bound=len(result.assets),
+        warning_count=len(result.warnings),
     )
+
+    if result.kind == "file":
+        document = result.documents[0]
+        variables = list(result.variables_by_document.get(str(document.id), ()))
+        return Response(
+            {
+                "kind": "file",
+                "document": DocumentSerializer(document).data,
+                "variables": [
+                    {
+                        "id": str(item.id),
+                        "variable_name": item.variable_name,
+                        "required": item.required,
+                        "source": item.source,
+                        "type": item.type,
+                        "metadata": item.metadata,
+                    }
+                    for item in variables
+                ],
+                "summary": {
+                    "documents_created": 1,
+                    "assets_bound": 0,
+                    "warnings": 0,
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
     return Response(
         {
-            "document": DocumentSerializer(document).data,
-            "variables": [
-                {
-                    "id": str(item.id),
-                    "variable_name": item.variable_name,
-                    "required": item.required,
-                    "source": item.source,
-                    "type": item.type,
-                    "metadata": item.metadata,
-                }
-                for item in variables
-            ],
+            "kind": "zip",
+            "documents": DocumentSerializer(list(result.documents), many=True).data,
+            "assets": WorkspaceAssetSerializer(list(result.assets), many=True).data,
+            "warnings": list(result.warnings),
+            "summary": {
+                "documents_created": len(result.documents),
+                "assets_bound": len(result.assets),
+                "warnings": len(result.warnings),
+            },
         },
         status=status.HTTP_201_CREATED,
     )
@@ -116,17 +150,23 @@ def document_detail_view(request, document_id: str):
 def render_document_view(request, document_id: str):
     variables = request.data.get("variables", {})
     asset_overrides = request.data.get("asset_overrides", {})
+    generation_policy_payload = request.data.get("generation_policy")
 
     if variables is not None and not isinstance(variables, dict):
         return Response({"error": "variables must be an object"}, status=status.HTTP_400_BAD_REQUEST)
     if asset_overrides is not None and not isinstance(asset_overrides, dict):
         return Response({"error": "asset_overrides must be an object"}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        generation_policy = parse_generation_policy(generation_policy_payload)
+    except GenerationPolicyValidationError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         version, unresolved, warnings = render_document(
             document_id=document_id,
             variables=variables or {},
             asset_overrides=asset_overrides or {},
+            generation_policy=generation_policy,
         )
     except FileNotFoundError:
         return Response({"error": "Document not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -253,6 +293,7 @@ def files_delete_view(request):
 def handbook_assets_view(request, handbook_id: str):
     if request.method == "GET":
         assets = list_assets(handbook_id)
+        _dev_log("ASSET_LIST", handbook_id=handbook_id, count=len(assets))
         return Response({"assets": WorkspaceAssetSerializer(assets, many=True).data}, status=status.HTTP_200_OK)
 
     uploaded = request.FILES.get("file")
@@ -264,5 +305,54 @@ def handbook_assets_view(request, handbook_id: str):
         asset = upload_asset(handbook_id=handbook_id, asset_type=asset_type, uploaded=uploaded)
     except AssetValidationError as exc:
         return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    _dev_log(
+        "ASSET_UPLOAD",
+        handbook_id=handbook_id,
+        asset_type=asset_type,
+        asset_id=str(asset.id),
+    )
 
     return Response({"asset": WorkspaceAssetSerializer(asset).data}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["DELETE"])
+def handbook_asset_detail_view(request, handbook_id: str, asset_type: str):
+    try:
+        asset = soft_delete_asset(handbook_id=handbook_id, asset_type=asset_type)
+    except AssetValidationError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    if asset is None:
+        return Response({"error": "Asset not found"}, status=status.HTTP_404_NOT_FOUND)
+    _dev_log(
+        "ASSET_DELETE",
+        handbook_id=handbook_id,
+        asset_type=asset_type,
+        asset_id=str(asset.id),
+    )
+    return Response({"status": "deleted", "asset_type": asset_type}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+def handbook_asset_download_view(request, handbook_id: str, asset_type: str):
+    try:
+        asset = get_active_asset(handbook_id=handbook_id, asset_type=asset_type)
+    except AssetValidationError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    if asset is None:
+        return Response({"error": "Asset not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    path = Path(asset.file_path)
+    if not path.exists():
+        return Response({"error": "Asset binary not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    _dev_log(
+        "ASSET_DOWNLOAD",
+        handbook_id=handbook_id,
+        asset_type=asset_type,
+        asset_id=str(asset.id),
+    )
+
+    response = FileResponse(path.open("rb"), content_type=asset.mime_type or "application/octet-stream")
+    response["Content-Disposition"] = f'attachment; filename="{path.name}"'
+    response["Content-Length"] = str(path.stat().st_size)
+    return response

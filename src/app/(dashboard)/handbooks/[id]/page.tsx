@@ -11,9 +11,11 @@ import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { FileTree } from '@/components/handbook-wizard/FileTree';
+import { AssetSlotCard } from '@/components/handbook-wizard/AssetSlotCard';
 import { useClient } from '@/hooks/useClients';
 import {
   useAiRewriteDocument,
+  useDeleteWorkspaceAsset,
   useDeleteFilePath,
   useDocuments,
   useFileTree,
@@ -72,6 +74,7 @@ export default function HandbookPage({ params }: PageProps) {
   const renderDocument = useRenderDocument(id);
   const rewriteDocument = useAiRewriteDocument(id);
   const uploadAsset = useUploadWorkspaceAsset(id);
+  const deleteAsset = useDeleteWorkspaceAsset(id);
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
@@ -132,8 +135,17 @@ export default function HandbookPage({ params }: PageProps) {
       const relPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
       const path = typeof relPath === 'string' && relPath.trim() ? relPath : file.name;
       try {
-        await uploadDocument.mutateAsync({ file, path });
+        const response = await uploadDocument.mutateAsync({ file, path });
         success += 1;
+        if (response.kind === 'zip') {
+          const { documents_created, assets_bound, warnings } = response.summary;
+          toast.success(
+            `ZIP verarbeitet: ${documents_created} Dokument(e), ${assets_bound} Asset(s)`,
+          );
+          if (warnings > 0) {
+            toast.warning(`${warnings} Eintrag/Einträge im ZIP wurden übersprungen.`);
+          }
+        }
       } catch (err) {
         failed += 1;
         toast.error(err instanceof Error ? err.message : 'Upload fehlgeschlagen');
@@ -145,20 +157,21 @@ export default function HandbookPage({ params }: PageProps) {
     event.target.value = '';
   }
 
-  async function handleUploadAsset(
-    event: React.ChangeEvent<HTMLInputElement>,
-    assetType: 'logo' | 'signature',
-  ) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+  async function handleUploadAsset(file: File, assetType: 'logo' | 'signature') {
     try {
       await uploadAsset.mutateAsync({ file, assetType });
       toast.success(`${assetType === 'logo' ? 'Logo' : 'Signatur'} gespeichert`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Asset Upload fehlgeschlagen');
-    } finally {
-      event.target.value = '';
+    }
+  }
+
+  async function handleRemoveAsset(assetType: 'logo' | 'signature') {
+    try {
+      await deleteAsset.mutateAsync({ assetType });
+      toast.success(`${assetType === 'logo' ? 'Logo' : 'Signatur'} entfernt`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Asset konnte nicht entfernt werden');
     }
   }
 
@@ -265,11 +278,11 @@ export default function HandbookPage({ params }: PageProps) {
                   type="file"
                   multiple
                   className="block w-full text-sm"
-                  accept=".docx,.md,.txt,.html,.htm"
+                  accept=".docx,.pptx,.xlsx,.md,.txt,.html,.htm,.zip"
                   onChange={handleUpload}
                 />
                 <p className="mt-2 text-xs text-gray-500">
-                  Unterstützt: DOCX, MD, TXT, HTML. Legacy DOC wird in v1 abgelehnt.
+                  Unterstützt: DOCX, PPTX, XLSX, MD, TXT, HTML, ZIP. Legacy DOC wird in v1 abgelehnt.
                 </p>
               </CardContent>
             </Card>
@@ -341,16 +354,24 @@ export default function HandbookPage({ params }: PageProps) {
                     {systemVariables.length > 0 && (
                       <div className="rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700">
                         <p className="font-semibold text-gray-800">Systemvariablen</p>
-                        <div className="mt-1 space-y-1">
-                          {systemVariables.map(item => (
-                            <p key={item.id}>
+                      <div className="mt-1 space-y-1">
+                        {systemVariables.map(item => (
+                          <div key={item.id} className="flex items-center justify-between gap-2">
+                            <p>
                               {item.variable_name}
                               {item.required ? ' *' : ''}
                             </p>
-                          ))}
-                        </div>
+                            {item.variable_name === 'assets.logo' && (
+                              <Badge variant="gray">Alias: [LOGO]</Badge>
+                            )}
+                            {item.variable_name === 'assets.signature' && (
+                              <Badge variant="gray">Alias: [SIGNATURE]</Badge>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                    )}
+                    </div>
+                  )}
 
                     {renderErrors.length > 0 && (
                       <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
@@ -423,26 +444,26 @@ export default function HandbookPage({ params }: PageProps) {
                 <h3 className="text-sm font-semibold text-gray-900">Assets</h3>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="space-y-1">
-                  <Label className="text-xs">Logo ({logoAsset ? 'vorhanden' : 'fehlt'})</Label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={event => void handleUploadAsset(event, 'logo')}
-                    className="block w-full text-xs"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">
-                    Signatur ({signatureAsset ? 'vorhanden' : 'fehlt'})
-                  </Label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={event => void handleUploadAsset(event, 'signature')}
-                    className="block w-full text-xs"
-                  />
-                </div>
+                <AssetSlotCard
+                  title="Logo"
+                  assetType="logo"
+                  canonicalKey="assets.logo"
+                  aliases={['__ASSET_LOGO__', '[LOGO]', '{{assets.logo}}']}
+                  asset={logoAsset}
+                  busy={uploadAsset.isPending || deleteAsset.isPending}
+                  onUpload={handleUploadAsset}
+                  onRemove={handleRemoveAsset}
+                />
+                <AssetSlotCard
+                  title="Signatur"
+                  assetType="signature"
+                  canonicalKey="assets.signature"
+                  aliases={['__ASSET_SIGNATURE__', '[SIGNATURE]', '{{assets.signature}}']}
+                  asset={signatureAsset}
+                  busy={uploadAsset.isPending || deleteAsset.isPending}
+                  onUpload={handleUploadAsset}
+                  onRemove={handleRemoveAsset}
+                />
               </CardContent>
             </Card>
 

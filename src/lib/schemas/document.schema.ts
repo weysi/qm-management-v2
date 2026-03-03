@@ -47,9 +47,15 @@ export const DocumentSchema = z.object({
 export const WorkspaceAssetSchema = z.object({
   id: z.string().uuid(),
   handbook_id: z.string(),
+  kind: z.enum(['logo', 'signature']),
   asset_type: z.enum(['logo', 'signature']),
+  filename: z.string(),
   file_path: z.string(),
   mime_type: z.string(),
+  size_bytes: z.number().int().nonnegative(),
+  status: z.enum(['READY', 'PROCESSING', 'FAILED']),
+  preview_url: z.string().nullable().optional(),
+  download_url: z.string(),
   created_at: z.string(),
   updated_at: z.string(),
 });

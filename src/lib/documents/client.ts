@@ -82,6 +82,19 @@ function normalizeTreeResponse(payload: unknown): unknown {
   };
 }
 
+function toAssetProxyUrl(handbookId: string, assetType: 'logo' | 'signature') {
+  return `/api/handbooks/${encodeURIComponent(handbookId)}/assets/${assetType}/download`;
+}
+
+function normalizeWorkspaceAsset(asset: WorkspaceAsset): WorkspaceAsset {
+  const proxyUrl = toAssetProxyUrl(asset.handbook_id, asset.asset_type);
+  return {
+    ...asset,
+    preview_url: asset.preview_url ? proxyUrl : asset.preview_url,
+    download_url: proxyUrl,
+  };
+}
+
 export async function uploadDocument(params: {
   handbookId: string;
   file: File;
@@ -118,6 +131,7 @@ export async function renderDocument(params: {
   documentId: string;
   variables: Record<string, string>;
   assetOverrides?: Record<string, string>;
+  generationPolicy?: { onMissingAsset?: 'FAIL' | 'KEEP_PLACEHOLDER' };
 }): Promise<RenderDocumentResponse> {
   const res = await fetch(`/api/documents/${encodeURIComponent(params.documentId)}/render`, {
     method: 'POST',
@@ -125,6 +139,11 @@ export async function renderDocument(params: {
     body: JSON.stringify({
       variables: params.variables,
       asset_overrides: params.assetOverrides ?? {},
+      generation_policy: params.generationPolicy
+        ? {
+            on_missing_asset: params.generationPolicy.onMissingAsset ?? 'FAIL',
+          }
+        : undefined,
     }),
   });
   const data = await parseJsonOrError<unknown>(res);
@@ -188,7 +207,7 @@ export async function listWorkspaceAssets(handbookId: string): Promise<Workspace
   const res = await fetch(`/api/handbooks/${encodeURIComponent(handbookId)}/assets`);
   const data = await parseJsonOrError<unknown>(res);
   const parsed = ListAssetsResponseSchema.parse(data);
-  return parsed.assets;
+  return parsed.assets.map(item => normalizeWorkspaceAsset(item));
 }
 
 export async function uploadWorkspaceAsset(params: {
@@ -204,7 +223,20 @@ export async function uploadWorkspaceAsset(params: {
     body: form,
   });
   const data = await parseJsonOrError<unknown>(res);
-  return UploadAssetResponseSchema.parse(data).asset;
+  return normalizeWorkspaceAsset(UploadAssetResponseSchema.parse(data).asset);
+}
+
+export async function deleteWorkspaceAsset(params: {
+  handbookId: string;
+  assetType: 'logo' | 'signature';
+}): Promise<void> {
+  const res = await fetch(
+    `/api/handbooks/${encodeURIComponent(params.handbookId)}/assets/${params.assetType}`,
+    {
+      method: 'DELETE',
+    },
+  );
+  await parseJsonOrError<unknown>(res);
 }
 
 export function documentVersionFilename(version: DocumentVersion): string {

@@ -4,13 +4,22 @@ from pathlib import Path
 
 from django.db import transaction
 
-from documents.models import Document, DocumentVariable, DocumentVersion, WorkspaceAsset
+from documents.models import Document, DocumentVariable, DocumentVersion
 from template_engine.cache import parse_template_cached
 from template_engine.renderer import render
-from template_engine.ooxml import apply_placeholders_to_ooxml_bytes
 
+from .asset_service import asset_download_url, get_active_asset
+from .generation_policy import RenderGenerationPolicy, should_fail_on_missing_asset
+from .office_generation import generate_office_document
 from .storage import LocalStorage
 from .token_metrics import estimate_token_count_from_bytes, log_token_metrics
+from .variable_keys import (
+    CANONICAL_ASSET_LOGO,
+    CANONICAL_ASSET_SIGNATURE,
+    canonicalize_variable_map,
+)
+
+ASSET_KEYS = {CANONICAL_ASSET_LOGO, CANONICAL_ASSET_SIGNATURE}
 
 
 class RenderValidationError(ValueError):
@@ -22,32 +31,6 @@ class RenderValidationError(ValueError):
 def _next_version(document: Document) -> int:
     latest = document.versions.order_by("-version_number").first()
     return (latest.version_number if latest else 0) + 1
-
-
-def _resolve_asset_placeholder_value(
-    *,
-    handbook_id: str,
-    asset_type: str,
-    override: object | None,
-) -> str:
-    if isinstance(override, str) and override.strip():
-        return override.strip()
-
-    asset = (
-        WorkspaceAsset.objects.filter(
-            handbook_id=handbook_id,
-            asset_type=asset_type,
-            deleted_at__isnull=True,
-        )
-        .order_by("-updated_at")
-        .first()
-    )
-    if asset is None:
-        return ""
-
-    if asset_type == WorkspaceAsset.AssetType.LOGO:
-        return "[LOGO]"
-    return "[SIGNATURE]"
 
 
 def _required_variables(document: Document) -> set[str]:
@@ -77,66 +60,96 @@ def _collect_missing_errors(unresolved: list[dict[str, object]], required: set[s
     return errors
 
 
+def _asset_value_for_text_extension(
+    *,
+    ext: str,
+    handbook_id: str,
+    asset_type: str,
+    override: object | None,
+) -> str:
+    if isinstance(override, str) and override.strip():
+        return override.strip()
+
+    asset = get_active_asset(handbook_id=handbook_id, asset_type=asset_type)
+    if asset is None:
+        return ""
+
+    download_url = asset_download_url(handbook_id, asset_type)
+    if ext in {".html", ".htm"}:
+        alt = "logo" if asset_type == "logo" else "signature"
+        return f'<img src="{download_url}" alt="{alt}" />'
+    if ext == ".md":
+        label = "logo" if asset_type == "logo" else "signature"
+        return f"![{label}]({download_url})"
+    return download_url
+
+
 @transaction.atomic
 def render_document(
     *,
     document_id: str,
     variables: dict[str, object] | None = None,
     asset_overrides: dict[str, object] | None = None,
+    generation_policy: RenderGenerationPolicy | None = None,
 ) -> tuple[DocumentVersion, list[dict[str, object]], list[dict[str, object]]]:
     document = Document.objects.filter(id=document_id, deleted_at__isnull=True).first()
     if document is None:
         raise FileNotFoundError("Document not found")
 
-    values = dict(variables or {})
-    overrides = asset_overrides or {}
-
-    values.setdefault(
-        "assets.logo",
-        _resolve_asset_placeholder_value(
-            handbook_id=document.handbook_id,
-            asset_type=WorkspaceAsset.AssetType.LOGO,
-            override=overrides.get("assets.logo"),
-        ),
-    )
-    values.setdefault(
-        "assets.signature",
-        _resolve_asset_placeholder_value(
-            handbook_id=document.handbook_id,
-            asset_type=WorkspaceAsset.AssetType.SIGNATURE,
-            override=overrides.get("assets.signature"),
-        ),
-    )
+    policy = generation_policy or RenderGenerationPolicy()
+    values = canonicalize_variable_map(variables or {})
+    overrides = canonicalize_variable_map(asset_overrides or {})
 
     original_path = Path(document.original_file_path)
     source_bytes = LocalStorage().read_bytes(original_path)
     ext = original_path.suffix.lower()
     required = _required_variables(document)
+    required_for_missing_errors = set(required)
 
     unresolved: list[dict[str, object]] = []
+    warnings: list[dict[str, object]] = []
     errors: list[dict[str, object]] = []
+    output_bytes: bytes
 
-    if ext == ".docx":
-        output_bytes, unresolved, ooxml_errors = apply_placeholders_to_ooxml_bytes(
-            source_bytes,
-            ext,
-            values,
-            required_variables=required,
+    if ext in {".docx", ".pptx", ".xlsx"}:
+        required_non_asset = required - ASSET_KEYS
+        required_for_missing_errors = required_non_asset
+        text_values = {k: v for k, v in values.items() if k not in ASSET_KEYS}
+        office_result = generate_office_document(
+            source_bytes=source_bytes,
+            ext=ext,
+            handbook_id=document.handbook_id,
+            text_values=text_values,
+            required_non_asset_variables=required_non_asset,
+            generation_policy=policy,
         )
-        errors.extend(
-            [
-                {
-                    "variable": item.get("variable"),
-                    "error_code": item.get("error_code"),
-                    "message": item.get("message"),
-                    "path": item.get("path"),
-                    "start": item.get("start"),
-                    "end": item.get("end"),
-                }
-                for item in ooxml_errors
-            ]
-        )
+        output_bytes = office_result.output_bytes
+        unresolved = office_result.unresolved
+        warnings = office_result.warnings
+        errors.extend(office_result.errors)
+
+        if should_fail_on_missing_asset(policy):
+            required_for_missing_errors = required_for_missing_errors - ASSET_KEYS
     else:
+        values.setdefault(
+            CANONICAL_ASSET_LOGO,
+            _asset_value_for_text_extension(
+                ext=ext,
+                handbook_id=document.handbook_id,
+                asset_type="logo",
+                override=overrides.get(CANONICAL_ASSET_LOGO),
+            ),
+        )
+        values.setdefault(
+            CANONICAL_ASSET_SIGNATURE,
+            _asset_value_for_text_extension(
+                ext=ext,
+                handbook_id=document.handbook_id,
+                asset_type="signature",
+                override=overrides.get(CANONICAL_ASSET_SIGNATURE),
+            ),
+        )
+
         text = source_bytes.decode("utf-8", errors="ignore")
         ast = parse_template_cached(text)
         result = render(
@@ -146,6 +159,7 @@ def render_document(
             fail_fast_on_required=False,
             preserve_unresolved=True,
         )
+        output_bytes = result.output.encode("utf-8")
         unresolved = list(result.unresolved)
         errors.extend(
             [
@@ -160,9 +174,8 @@ def render_document(
                 for err in result.errors
             ]
         )
-        output_bytes = result.output.encode("utf-8")
 
-    errors.extend(_collect_missing_errors(unresolved, required))
+    errors.extend(_collect_missing_errors(unresolved, required_for_missing_errors))
     deduped_errors: list[dict[str, object]] = []
     seen: set[tuple[str, str, object, object]] = set()
     for item in errors:
@@ -181,9 +194,7 @@ def render_document(
         raise RenderValidationError(deduped_errors)
 
     version = _next_version(document)
-    output_path = (
-        original_path.parent.parent / "versions" / document.relative_path
-    )
+    output_path = original_path.parent.parent / "versions" / document.relative_path
     output_name = f"v{version}-{output_path.name}"
     output_path = output_path.with_name(output_name)
     LocalStorage().write_bytes(output_path, output_bytes)
@@ -202,7 +213,7 @@ def render_document(
         metadata={
             "operation": "render",
             "unresolved_count": len(unresolved),
+            "warning_count": len(warnings),
         },
     )
-
-    return doc_version, unresolved, []
+    return doc_version, unresolved, warnings

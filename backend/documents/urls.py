@@ -13,4 +13,9 @@ urlpatterns = [
     path("files/tree", views.files_tree_view),
     path("files", views.files_delete_view),
     path("handbooks/<str:handbook_id>/assets", views.handbook_assets_view),
+    path("handbooks/<str:handbook_id>/assets/<str:asset_type>", views.handbook_asset_detail_view),
+    path(
+        "handbooks/<str:handbook_id>/assets/<str:asset_type>/download",
+        views.handbook_asset_download_view,
+    ),
 ]

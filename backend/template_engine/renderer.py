@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .ast import TemplateAst
+from .compat import canonicalize_name
 from .errors import TemplateEngineError
 
 
@@ -48,7 +49,9 @@ def render(
     required_variables: set[str] | None = None,
     preserve_unresolved: bool = True,
 ) -> RenderResult:
-    del registry_by_name, alias_to_name  # Kept for backward-compatible signature.
+    del registry_by_name  # Kept for backward-compatible signature.
+
+    aliases = alias_to_name or {}
 
     required = required_variables or set()
     output_parts: list[str] = []
@@ -60,7 +63,7 @@ def render(
             output_parts.append(node.text)
             continue
 
-        variable = node.variable
+        variable = canonicalize_name(node.variable, aliases)
         found, value = _resolve(data, variable)
         serialized = _serialize(value).strip() if found else ""
 

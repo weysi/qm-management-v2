@@ -33,13 +33,28 @@ export function useUploadDocument(handbookId: string) {
     onSuccess: response => {
       qc.setQueryData<Document[]>([DOCUMENTS_KEY, handbookId], prev => {
         const existing = Array.isArray(prev) ? prev : [];
-        if (existing.some(item => item.id === response.document.id)) {
-          return existing;
+        if (response.kind === 'file') {
+          if (existing.some(item => item.id === response.document.id)) {
+            return existing;
+          }
+          return [...existing, response.document];
         }
-        return [...existing, response.document];
+
+        const byId = new Map(existing.map(item => [item.id, item]));
+        for (const item of response.documents) {
+          byId.set(item.id, item);
+        }
+        return Array.from(byId.values());
       });
+      if (process.env.NODE_ENV !== 'production') {
+        console.info('[documents] invalidating upload-linked queries', {
+          handbookId,
+          kind: response.kind,
+        });
+      }
       qc.invalidateQueries({ queryKey: [DOCUMENTS_KEY, handbookId] });
       qc.invalidateQueries({ queryKey: ['files-tree', handbookId] });
+      qc.invalidateQueries({ queryKey: ['workspace-assets', handbookId] });
     },
   });
 }
