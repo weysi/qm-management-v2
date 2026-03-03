@@ -1,21 +1,19 @@
-version: "3.9"
-
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: qm-rag-postgres
+    container_name: qm-documents-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: qm_rag
+      POSTGRES_DB: qm-documents
     ports:
       - "5432:5432"
     volumes:
-      - qm_rag_pg:/var/lib/postgresql/data
+      - qm_documents_pg:/var/lib/postgresql/data
 
   redis:
     image: redis:7-alpine
-    container_name: qm-rag-redis
+    container_name: qm-documents-redis
     ports:
       - "6379:6379"
 
@@ -23,16 +21,17 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: qm-rag-django
+    container_name: qm-documents-django
     working_dir: /app/backend
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/qm_rag
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/qm-documents
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       OPENAI_CHAT_MODEL: gpt-4o-mini
+      OPENAI_REWRITE_MODEL: gpt-4o-mini
       OPENAI_ROUTER_MODEL: gpt-4o-mini
       OPENAI_EMBED_MODEL: text-embedding-3-small
-      RAG_DATA_ROOT: /app/data
+      DATA_ROOT: /app/data
     env_file:
       - .env.local
     depends_on:
@@ -48,25 +47,28 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    container_name: qm-rag-celery
+    container_name: qm-documents-celery
     working_dir: /app/backend
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/qm_rag
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/qm-documents
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       OPENAI_CHAT_MODEL: gpt-4o-mini
       OPENAI_ROUTER_MODEL: gpt-4o-mini
       OPENAI_EMBED_MODEL: text-embedding-3-small
-      RAG_DATA_ROOT: /app/data
+      DATA_ROOT: /app/data
     env_file:
       - .env.local
     depends_on:
       - postgres
       - redis
-      - django
     volumes:
       - .:/app
-    command: sh -c "python manage.py migrate && celery -A config worker -l info"
+    # Celery app not yet implemented — service disabled
+    profiles:
+      - celery
 
 volumes:
-  qm_rag_pg:
+  qm_documents_pg:
+    external: true
+    name: qm-management-v2_qm_rag_pg

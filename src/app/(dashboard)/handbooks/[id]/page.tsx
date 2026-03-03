@@ -1,292 +1,465 @@
 'use client';
 
-import { use, useState, useCallback } from 'react';
-import Link from 'next/link';
+import { use, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { useHandbook } from '@/hooks/useHandbook';
-import { useClient } from '@/hooks/useClients';
-import { useRagAssets, useRagUpload } from '@/hooks/useRagTraining';
 import { Header } from '@/components/layout/Header';
-import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
+import { Textarea } from '@/components/ui/textarea';
 import { FileTree } from '@/components/handbook-wizard/FileTree';
-import { GenerationPanel } from '@/components/handbook-wizard/GenerationPanel';
-import { FilePreviewPanel } from '@/components/handbook-wizard/FilePreviewPanel';
-import type { RagAssetItem } from '@/hooks/useRagTraining';
+import { useClient } from '@/hooks/useClients';
+import {
+  useAiRewriteDocument,
+  useDeleteFilePath,
+  useDocuments,
+  useFileTree,
+  useHandbook,
+  useRenderDocument,
+  useUploadDocument,
+  useUploadWorkspaceAsset,
+  useWorkspaceAssets,
+} from '@/hooks';
+import { ApiRequestError } from '@/lib/documents';
+import type { Document, DocumentVariable } from '@/lib/schemas';
 
 interface PageProps {
-	params: Promise<{ id: string }>;
+  params: Promise<{ id: string }>;
+}
+
+function fallbackValueByVariable(variable: string, client: {
+  name: string;
+  address: string;
+  zipCity: string;
+  ceo: string;
+  qmManager: string;
+  industry: string;
+  products: string;
+  services: string;
+}) {
+  const map: Record<string, string> = {
+    'company.name': client.name,
+    'company.address': client.address,
+    'company.zip_city': client.zipCity,
+    'user.name': client.qmManager,
+    'user.ceo': client.ceo,
+    'company.industry': client.industry,
+    'company.products': client.products,
+    'company.services': client.services,
+  };
+  return map[variable] ?? '';
 }
 
 export default function HandbookPage({ params }: PageProps) {
-	const { id } = use(params);
-	const { data: manual, isLoading: loadingManual } = useHandbook(id);
-	const { data: client, isLoading: loadingClient } = useClient(
-		manual?.clientId ?? '',
-	);
+  const { id } = use(params);
+  const { data: handbook, isLoading: handbookLoading } = useHandbook(id);
+  const { data: client, isLoading: clientLoading } = useClient(handbook?.clientId ?? '');
 
-	// RAG assets for this manual
-	const { data: ragAssets = [], isLoading: loadingAssets } = useRagAssets(id);
+  const { data: documents = [], isLoading: docsLoading } = useDocuments(id);
+  const {
+    data: tree = [],
+    isLoading: treeLoading,
+    isError: treeIsError,
+    error: treeError,
+  } = useFileTree(id);
+  const { data: assets = [] } = useWorkspaceAssets(id);
 
-	// Upload via RAG backend
-	const { mutateAsync: uploadAsset, isPending: isUploading } = useRagUpload(id);
+  const uploadDocument = useUploadDocument(id);
+  const deletePath = useDeleteFilePath(id);
+  const renderDocument = useRenderDocument(id);
+  const rewriteDocument = useAiRewriteDocument(id);
+  const uploadAsset = useUploadWorkspaceAsset(id);
 
-	// Ref callback: sets webkitdirectory without a useEffect, stores element for click
-	const [inputEl, setInputEl] = useState<HTMLInputElement | null>(null);
-	const inputRefCallback = useCallback((el: HTMLInputElement | null) => {
-		if (el) {
-			el.setAttribute('webkitdirectory', '');
-			el.setAttribute('directory', '');
-		}
-		setInputEl(el);
-	}, []);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [variableValues, setVariableValues] = useState<Record<string, string>>({});
+  const [renderErrors, setRenderErrors] = useState<
+    Array<{ message: string; variable?: string | null }>
+  >([]);
+  const [rewriteInstruction, setRewriteInstruction] = useState('');
 
-	// File selection state
-	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-	// File preview state
-	const [previewAsset, setPreviewAsset] = useState<RagAssetItem | null>(null);
+  const selectedDocument = useMemo<Document | null>(() => {
+    if (!selectedPath) return null;
+    return documents.find(item => item.relative_path === selectedPath) ?? null;
+  }, [documents, selectedPath]);
 
-	const handleSelect = useCallback((assetId: string, selected: boolean) => {
-		setSelectedIds(prev => {
-			const next = new Set(prev);
-			if (selected) next.add(assetId);
-			else next.delete(assetId);
-			return next;
-		});
-	}, []);
+  const editableVariables = useMemo<DocumentVariable[]>(() => {
+    if (!selectedDocument) return [];
+    return selectedDocument.variables.filter(variable => variable.source === 'user_input');
+  }, [selectedDocument]);
 
-	const handleSelectAll = useCallback(
-		(selected: boolean) => {
-			if (selected) {
-				setSelectedIds(new Set(ragAssets.map(a => a.id)));
-			} else {
-				setSelectedIds(new Set());
-			}
-		},
-		[ragAssets],
-	);
+  const systemVariables = useMemo<DocumentVariable[]>(() => {
+    if (!selectedDocument) return [];
+    return selectedDocument.variables.filter(variable => variable.source === 'system');
+  }, [selectedDocument]);
 
-	if (loadingManual || loadingClient) {
-		return (
-			<div className="flex justify-center items-center h-64">
-				<Spinner />
-			</div>
-		);
-	}
+  useEffect(() => {
+    if (!selectedDocument || !client) {
+      setVariableValues({});
+      return;
+    }
 
-	if (!manual || !client) {
-		return <div className="p-8 text-gray-500">Handbuch nicht gefunden.</div>;
-	}
+    const next: Record<string, string> = {};
+    for (const item of editableVariables) {
+      next[item.variable_name] = fallbackValueByVariable(item.variable_name, client);
+    }
+    setVariableValues(next);
+    setRenderErrors([]);
+  }, [selectedDocument, client, editableVariables]);
 
-	async function handleFileInput(event: React.ChangeEvent<HTMLInputElement>) {
-		if (!client) return;
-		const list = event.target.files;
-		if (!list || list.length === 0) return;
+  if (handbookLoading || clientLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Spinner />
+      </div>
+    );
+  }
 
-		const files = Array.from(list);
-		let success = 0;
-		let failed = 0;
+  if (!handbook || !client) {
+    return <div className="p-8 text-gray-500">Handbuch nicht gefunden.</div>;
+  }
 
-		for (const file of files) {
-			const rel = (file as File & { webkitRelativePath?: string })
-				.webkitRelativePath;
-			const path =
-				typeof rel === 'string' && rel.trim() !== '' ? rel : file.name;
+  async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const list = event.target.files;
+    if (!list || list.length === 0) return;
 
-			try {
-				await uploadAsset({
-					file,
-					manualId: id,
-					tenantId: client.id,
-					packageCode: 'ISO9001',
-					packageVersion: 'v1',
-					role: 'TEMPLATE',
-					path,
-				});
-				success++;
-			} catch {
-				failed++;
-			}
-		}
+    let success = 0;
+    let failed = 0;
 
-		if (success > 0) toast.success(`${success} Datei(en) hochgeladen.`);
-		if (failed > 0) toast.error(`${failed} Datei(en) fehlgeschlagen.`);
-		event.target.value = '';
-	}
+    for (const file of Array.from(list)) {
+      const relPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+      const path = typeof relPath === 'string' && relPath.trim() ? relPath : file.name;
+      try {
+        await uploadDocument.mutateAsync({ file, path });
+        success += 1;
+      } catch (err) {
+        failed += 1;
+        toast.error(err instanceof Error ? err.message : 'Upload fehlgeschlagen');
+      }
+    }
 
-	// Build customer profile from client data (matches ISO9001_v1_variables.json)
-	const customerProfile: Record<string, string> = {
-		COMPANY_NAME: client.name,
-		COMPANY_ADDRESS: client.address,
-		COMPANY_ZIP_CITY: client.zipCity,
-		CEO_NAME: client.ceo,
-		QM_MANAGER_NAME: client.qmManager,
-		EMPLOYEE_COUNT: String(client.employeeCount),
-		INDUSTRY: client.industry,
-		PRODUCTS: client.products ?? '',
-		SERVICES: client.services ?? '',
-		REVISION: manual.version ?? '1.0',
-	};
+    if (success > 0) toast.success(`${success} Datei(en) hochgeladen`);
+    if (failed > 0) toast.error(`${failed} Datei(en) fehlgeschlagen`);
+    event.target.value = '';
+  }
 
-	const templateAssets = ragAssets.filter(a => a.role === 'TEMPLATE');
-	const referenceAssets = ragAssets.filter(
-		a => a.role === 'REFERENCE' || a.role === 'CUSTOMER_REFERENCE',
-	);
+  async function handleUploadAsset(
+    event: React.ChangeEvent<HTMLInputElement>,
+    assetType: 'logo' | 'signature',
+  ) {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-	return (
-		<div className="flex flex-col h-screen overflow-hidden">
-			<Header
-				title={manual.title}
-				subtitle={`v${manual.version} · ${client.name}`}
-				actions={
-					<div className="flex items-center gap-3">
-						<Badge variant="blue">{ragAssets.length} Dateien</Badge>
-						<Link href={`/handbooks/${id}/reference-files`}>
-							<Button
-								variant="outline"
-								size="sm"
-							>
-								Referenzdokumente
-							</Button>
-						</Link>
-					</div>
-				}
-			/>
+    try {
+      await uploadAsset.mutateAsync({ file, assetType });
+      toast.success(`${assetType === 'logo' ? 'Logo' : 'Signatur'} gespeichert`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Asset Upload fehlgeschlagen');
+    } finally {
+      event.target.value = '';
+    }
+  }
 
-			<div className="flex-1 overflow-y-auto">
-				<div className="px-8 py-6">
-					<div className="grid grid-cols-3 gap-6">
-						{/* Left: File tree (2 cols) */}
-						<div className="col-span-2 space-y-4">
-							{/* Upload area */}
-							<Card>
-								<CardContent className="py-4">
-									<div className="flex items-center justify-between">
-										<div>
-											<input
-												ref={inputRefCallback}
-												type="file"
-												multiple
-												accept=".docx,.pptx,.xlsx,.pdf,.doc"
-												className="hidden"
-												onChange={handleFileInput}
-											/>
-											<Button
-												variant="outline"
-												size="sm"
-												loading={isUploading}
-												onClick={() => inputEl?.click()}
-											>
-												Dateien / Ordner hochladen
-											</Button>
-										</div>
-										<div className="flex items-center gap-2 text-xs text-gray-500">
-											<Badge variant="blue">
-												{templateAssets.length} Vorlagen
-											</Badge>
-											<Badge variant="green">
-												{referenceAssets.length} Referenzen
-											</Badge>
-										</div>
-									</div>
-								</CardContent>
-							</Card>
+  async function handleRender() {
+    if (!selectedDocument) {
+      toast.error('Bitte zuerst ein Dokument auswählen');
+      return;
+    }
 
-							{/* File tree */}
-							{loadingAssets ? (
-								<div className="flex justify-center py-12">
-									<Spinner />
-								</div>
-							) : ragAssets.length === 0 ? (
-								<Card>
-									<CardContent className="py-16 text-center text-gray-500">
-										<svg
-											className="w-12 h-12 text-gray-300 mx-auto mb-3"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 24"
-										>
-											<path
-												strokeLinecap="round"
-												strokeLinejoin="round"
-												strokeWidth={1.5}
-												d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-											/>
-										</svg>
-										<p className="font-medium">Keine Dateien vorhanden</p>
-										<p className="text-sm mt-1">
-											Laden Sie Dateien hoch oder importieren Sie ein Paket über
-											das RAG Training Dashboard.
-										</p>
-									</CardContent>
-								</Card>
-							) : (
-								<FileTree
-									assets={ragAssets}
-									selectedIds={selectedIds}
-									onSelect={handleSelect}
-									onSelectAll={handleSelectAll}
-									onFilePreview={setPreviewAsset}
-								/>
-							)}
+    try {
+      const result = await renderDocument.mutateAsync({
+        documentId: selectedDocument.id,
+        variables: variableValues,
+      });
+      setRenderErrors([]);
+      toast.success(`Version v${result.version.version_number} erstellt`);
+    } catch (err) {
+      if (err instanceof ApiRequestError) {
+        const details = err.details as { errors?: Array<{ message?: string; variable?: string | null }> };
+        if (Array.isArray(details.errors) && details.errors.length > 0) {
+          setRenderErrors(
+            details.errors.map(item => ({
+              message: item.message ?? err.message,
+              variable: item.variable ?? null,
+            })),
+          );
+        } else {
+          setRenderErrors([{ message: err.message }]);
+        }
+      } else {
+        const message = err instanceof Error ? err.message : 'Render fehlgeschlagen';
+        setRenderErrors([{ message }]);
+      }
 
-							{/* File preview panel (shown when a file is clicked) */}
-							{previewAsset && (
-								<FilePreviewPanel
-									asset={previewAsset}
-									customerProfile={customerProfile}
-									handbookId={id}
-									onClose={() => setPreviewAsset(null)}
-								/>
-							)}
-						</div>
+      const message = err instanceof Error ? err.message : 'Render fehlgeschlagen';
+      toast.error(message);
+    }
+  }
 
-						{/* Right sidebar (1 col) */}
-						<div className="space-y-4">
-							{/* Client info card */}
-							<Card>
-								<CardHeader>
-									<h3 className="font-semibold text-gray-900 text-sm">
-										Kundendaten
-									</h3>
-								</CardHeader>
-								<CardContent className="space-y-2">
-									{[
-										{ label: 'Firma', value: client.name },
-										{ label: 'Branche', value: client.industry },
-										{ label: 'Ort', value: client.zipCity },
-										{ label: 'GF', value: client.ceo },
-										{ label: 'QM', value: client.qmManager },
-									].map(({ label, value }) => (
-										<div
-											key={label}
-											className="flex gap-2 text-xs"
-										>
-											<span className="text-gray-500 w-14 shrink-0">
-												{label}:
-											</span>
-											<span className="text-gray-800 font-medium truncate">
-												{value}
-											</span>
-										</div>
-									))}
-								</CardContent>
-							</Card>
+  async function handleRewrite() {
+    if (!selectedDocument) {
+      toast.error('Bitte zuerst ein Dokument auswählen');
+      return;
+    }
+    if (!rewriteInstruction.trim()) {
+      toast.error('Bitte Anweisung eingeben');
+      return;
+    }
 
-							{/* Generation panel */}
-							<GenerationPanel
-								manualId={id}
-								tenantId={client.id}
-								selectedAssetIds={Array.from(selectedIds)}
-								customerProfile={customerProfile}
-								totalAssets={ragAssets.length}
-							/>
-						</div>
-					</div>
-				</div>
-			</div>
-		</div>
-	);
+    try {
+      const result = await rewriteDocument.mutateAsync({
+        documentId: selectedDocument.id,
+        instruction: rewriteInstruction.trim(),
+      });
+      toast.success(`AI-Version v${result.version.version_number} erstellt`);
+      setRewriteInstruction('');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'AI-Rewrite fehlgeschlagen');
+    }
+  }
+
+  async function handleDeleteFile(path: string) {
+    if (!confirm(`Datei löschen: ${path}?`)) return;
+    try {
+      await deletePath.mutateAsync({ path, recursive: false });
+      if (selectedPath === path) setSelectedPath(null);
+      toast.success('Datei entfernt');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Löschen fehlgeschlagen');
+    }
+  }
+
+  async function handleDeleteFolder(path: string) {
+    if (!confirm(`Ordner inkl. Unterdateien löschen: ${path}?`)) return;
+    try {
+      await deletePath.mutateAsync({ path, recursive: true });
+      if (selectedPath?.startsWith(`${path}/`)) setSelectedPath(null);
+      toast.success('Ordner entfernt');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Ordner löschen fehlgeschlagen');
+    }
+  }
+
+  const logoAsset = assets.find(item => item.asset_type === 'logo');
+  const signatureAsset = assets.find(item => item.asset_type === 'signature');
+
+  return (
+    <div className="flex flex-col h-screen overflow-hidden">
+      <Header
+        title={handbook.title}
+        subtitle={`v${handbook.version} · ${client.name}`}
+        actions={<Badge variant="blue">{documents.length} Dokumente</Badge>}
+      />
+
+      <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="grid grid-cols-3 gap-6">
+          <div className="col-span-2 space-y-4">
+            <Card>
+              <CardHeader>
+                <h3 className="text-sm font-semibold text-gray-900">Dokument Upload</h3>
+              </CardHeader>
+              <CardContent>
+                <input
+                  type="file"
+                  multiple
+                  className="block w-full text-sm"
+                  accept=".docx,.md,.txt,.html,.htm"
+                  onChange={handleUpload}
+                />
+                <p className="mt-2 text-xs text-gray-500">
+                  Unterstützt: DOCX, MD, TXT, HTML. Legacy DOC wird in v1 abgelehnt.
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <h3 className="text-sm font-semibold text-gray-900">Dateibaum</h3>
+              </CardHeader>
+              <CardContent>
+                {treeLoading || docsLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Spinner />
+                  </div>
+                ) : treeIsError ? (
+                  <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    <p className="font-medium">Dateibaum konnte nicht geladen werden.</p>
+                    <p className="mt-1 text-xs">
+                      {treeError instanceof Error ? treeError.message : 'Unbekannter Fehler'}
+                    </p>
+                  </div>
+                ) : (
+                  <FileTree
+                    nodes={tree}
+                    selectedPath={selectedPath}
+                    onSelectFile={setSelectedPath}
+                    onDeleteFile={handleDeleteFile}
+                    onDeleteFolder={handleDeleteFolder}
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            {selectedDocument && (
+              <Card>
+                <CardHeader>
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    {selectedDocument.name}
+                  </h3>
+                  <p className="text-xs text-gray-500">{selectedDocument.relative_path}</p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-700">Variablen</h4>
+                    {editableVariables.length === 0 ? (
+                      <p className="text-xs text-gray-500">Keine editierbaren Variablen gefunden.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2">
+                        {editableVariables.map(item => (
+                          <div key={item.id} className="space-y-1">
+                            <Label className="text-xs">
+                              {item.variable_name}
+                              {item.required ? ' *' : ' (optional)'}
+                            </Label>
+                            <Input
+                              value={variableValues[item.variable_name] ?? ''}
+                              onChange={event =>
+                                setVariableValues(prev => ({
+                                  ...prev,
+                                  [item.variable_name]: event.target.value,
+                                }))
+                              }
+                              placeholder={item.variable_name}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {systemVariables.length > 0 && (
+                      <div className="rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700">
+                        <p className="font-semibold text-gray-800">Systemvariablen</p>
+                        <div className="mt-1 space-y-1">
+                          {systemVariables.map(item => (
+                            <p key={item.id}>
+                              {item.variable_name}
+                              {item.required ? ' *' : ''}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {renderErrors.length > 0 && (
+                      <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                        {renderErrors.map((item, idx) => (
+                          <p key={idx}>
+                            {item.variable ? `${item.variable}: ` : ''}
+                            {item.message}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    <Button
+                      size="sm"
+                      onClick={handleRender}
+                      loading={renderDocument.isPending}
+                    >
+                      Rendern
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-700">AI: Modify Content</h4>
+                    <Textarea
+                      rows={4}
+                      value={rewriteInstruction}
+                      onChange={event => setRewriteInstruction(event.target.value)}
+                      placeholder="Beispiel: Kürze den Text, formeller Ton, Deutsch beibehalten."
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleRewrite}
+                      loading={rewriteDocument.isPending}
+                    >
+                      AI Rewrite
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold text-gray-700">Versionen</h4>
+                    <div className="space-y-1">
+                      {[...selectedDocument.versions]
+                        .sort((a, b) => b.version_number - a.version_number)
+                        .map(version => (
+                          <div
+                            key={version.id}
+                            className="flex items-center justify-between rounded border border-gray-100 px-2 py-1.5 text-xs"
+                          >
+                            <span>
+                              v{version.version_number} · {version.created_by}
+                            </span>
+                            <a
+                              href={`/api/documents/${selectedDocument.id}/download?version=${version.version_number}`}
+                              className="text-blue-600 hover:underline"
+                            >
+                              Download
+                            </a>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <h3 className="text-sm font-semibold text-gray-900">Assets</h3>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Logo ({logoAsset ? 'vorhanden' : 'fehlt'})</Label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={event => void handleUploadAsset(event, 'logo')}
+                    className="block w-full text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">
+                    Signatur ({signatureAsset ? 'vorhanden' : 'fehlt'})
+                  </Label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={event => void handleUploadAsset(event, 'signature')}
+                    className="block w-full text-xs"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <h3 className="text-sm font-semibold text-gray-900">Kundendaten</h3>
+              </CardHeader>
+              <CardContent className="space-y-1 text-xs text-gray-700">
+                <p>Firma: {client.name}</p>
+                <p>Branche: {client.industry}</p>
+                <p>GF: {client.ceo}</p>
+                <p>QM: {client.qmManager}</p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }

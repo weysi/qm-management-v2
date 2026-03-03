@@ -58,10 +58,10 @@ export const PlaceholderRegistryEntrySchema = z.object({
 });
 
 export const PlaceholderRegistrySchema = z.object({
-  id: z.string().min(1),
-  manualId: z.string().min(1),
-  keys: z.array(PlaceholderRegistryEntrySchema),
-  updatedAt: z.string().datetime(),
+	id: z.string().min(1),
+	handbookId: z.string().min(1),
+	keys: z.array(PlaceholderRegistryEntrySchema),
+	updatedAt: z.string().datetime(),
 });
 
 export const TemplateLibraryFileRoleSchema = z.enum([
@@ -90,11 +90,11 @@ export const TemplateLibraryFileSchema = z.object({
 });
 
 export const TemplateLibraryManifestSchema = z.object({
-  id: z.string().min(1),
-  manualId: z.string().min(1),
-  generatedAt: z.string().datetime(),
-  folders: z.array(z.string()),
-  files: z.array(TemplateLibraryFileSchema),
+	id: z.string().min(1),
+	handbookId: z.string().min(1),
+	generatedAt: z.string().datetime(),
+	folders: z.array(z.string()),
+	files: z.array(TemplateLibraryFileSchema),
 });
 
 const ManualPlanApplyPlaceholdersOperationSchema = z.object({
@@ -137,11 +137,11 @@ export const ManualPlanTreeEntrySchema = z.object({
 });
 
 export const ManualPlanSchema = z.object({
-  id: z.string().min(1),
-  manualId: z.string().min(1),
-  templateVariantId: z.string().min(1),
-  createdAt: z.string().datetime(),
-  outputTree: z.array(ManualPlanTreeEntrySchema),
+	id: z.string().min(1),
+	handbookId: z.string().min(1),
+	templateVariantId: z.string().min(1),
+	createdAt: z.string().datetime(),
+	outputTree: z.array(ManualPlanTreeEntrySchema),
 });
 
 export const ExecutionWarningSchema = z.object({
@@ -162,19 +162,19 @@ export const GenerationRunFileResultSchema = z.object({
 });
 
 export const GenerationRunReportSchema = z.object({
-  id: z.string().min(1),
-  manualId: z.string().min(1),
-  createdAt: z.string().datetime(),
-  status: z.enum(["success", "partial", "failed"]),
-  planId: z.string().min(1).optional(),
-  summary: z.object({
-    totalFiles: z.number().int().nonnegative(),
-    generatedFiles: z.number().int().nonnegative(),
-    failedFiles: z.number().int().nonnegative(),
-    skippedFiles: z.number().int().nonnegative(),
-  }),
-  files: z.array(GenerationRunFileResultSchema),
-  warnings: z.array(ExecutionWarningSchema),
+	id: z.string().min(1),
+	handbookId: z.string().min(1),
+	createdAt: z.string().datetime(),
+	status: z.enum(['success', 'partial', 'failed']),
+	planId: z.string().min(1).optional(),
+	summary: z.object({
+		totalFiles: z.number().int().nonnegative(),
+		generatedFiles: z.number().int().nonnegative(),
+		failedFiles: z.number().int().nonnegative(),
+		skippedFiles: z.number().int().nonnegative(),
+	}),
+	files: z.array(GenerationRunFileResultSchema),
+	warnings: z.array(ExecutionWarningSchema),
 });
 
 export const ScanManualGenerationRequestSchema = z.object({
@@ -191,6 +191,8 @@ export const PlanManualGenerationRequestSchema = z.object({
 export const ExecuteManualGenerationRequestSchema = z.object({
   plan: ManualPlanSchema.optional(),
   placeholderMap: z.record(z.string(), z.string()).optional(),
+  canonicalValues: z.record(z.string(), z.string()).optional(),
+  aliasExpandedValues: z.record(z.string(), z.string()).optional(),
   selectedFileIds: z.array(z.string().min(1)).optional(),
   globalOverrides: z.record(z.string(), z.string()).optional(),
   fileOverridesByFile: z

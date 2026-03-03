@@ -20,7 +20,6 @@ STANDARD_PACKAGES: dict[str, dict[str, Any]] = {
                 "reference_file_exts": ["pdf", "docx", "doc"],
                 "variable_schema_path": "backend/packages/schemas/ISO9001_v1_variables.json",
                 "handbook_path": "backend/packages/handbooks/ISO9001_v1_handbook.json",
-                "chunking": {"target_chars": 2400, "overlap_chars": 300},
             }
         }
     },
@@ -39,7 +38,6 @@ STANDARD_PACKAGES: dict[str, dict[str, Any]] = {
                 "reference_file_exts": ["pdf", "docx", "doc"],
                 "variable_schema_path": "backend/packages/schemas/SSCP_v1_variables.json",
                 "handbook_path": "backend/packages/handbooks/SSCP_v1_handbook.json",
-                "chunking": {"target_chars": 2400, "overlap_chars": 300},
             }
         }
     },
@@ -58,7 +56,6 @@ STANDARD_PACKAGES: dict[str, dict[str, Any]] = {
                 "reference_file_exts": ["pdf", "docx", "doc"],
                 "variable_schema_path": "backend/packages/schemas/ISO14007_v1_variables.json",
                 "handbook_path": "backend/packages/handbooks/ISO14007_v1_handbook.json",
-                "chunking": {"target_chars": 2400, "overlap_chars": 300},
             }
         }
     },

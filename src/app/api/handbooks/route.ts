@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { store } from '@/lib/store';
 import { isoManualSections } from '@/lib/mock-data/manual-template';
-import { fetchRag } from '@/lib/rag-backend';
+import { fetchBackend, safeJson } from '@/lib/backend-api';
+import type { Client } from '@/lib/schemas';
 
 export async function GET() {
 	return NextResponse.json(store.manuals);
@@ -16,7 +17,22 @@ export async function POST(req: Request) {
 		packageVersion?: string;
 	};
 
-	const client = store.clients.find(c => c.id === clientId);
+	// Look up client in local store first; if missing (e.g. after a server
+	// restart the in-memory store is empty) fetch from Django and cache it.
+	let client = store.clients.find(c => c.id === clientId);
+	if (!client) {
+		try {
+			const res = await fetchBackend(
+				`/api/v1/clients/${encodeURIComponent(clientId)}/`,
+			);
+			if (res.ok) {
+				client = (await safeJson(res)) as Client;
+				store.clients.push(client);
+			}
+		} catch {
+			// Django unreachable — client genuinely not found
+		}
+	}
 	if (!client) {
 		return NextResponse.json({ error: 'Client not found' }, { status: 404 });
 	}
@@ -40,27 +56,10 @@ export async function POST(req: Request) {
 
 	store.manuals.push(handbook);
 
-	// If package is specified, trigger start-package on Django backend
-	if (packageCode && packageVersion) {
-		try {
-			await fetchRag(`/api/v1/handbooks/${handbookId}/start-package`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					package_code: packageCode,
-					package_version: packageVersion,
-					tenant_id: clientId,
-					sync: false,
-					force: false,
-				}),
-			});
-		} catch {
-			// Non-fatal: handbook is created even if package init fails
-			console.warn(
-				`[handbooks/POST] start-package failed for ${handbookId}, continuing`,
-			);
-		}
-	}
+	// packageCode/packageVersion are accepted for compatibility, but the
+	// document pipeline does not initialize backend package workflows here.
+	void packageCode;
+	void packageVersion;
 
 	return NextResponse.json(handbook, { status: 201 });
 }

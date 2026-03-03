@@ -67,10 +67,3 @@ def chat_json(
             last_error = exc
 
     raise RuntimeError(f"Model did not return valid JSON: {last_error}")
-
-
-def embed_texts(texts: list[str], model: str) -> tuple[list[list[float]], str]:
-    client = get_openai_client()
-    response = client.embeddings.create(model=model, input=texts)
-    vectors = [item.embedding for item in response.data]
-    return vectors, response.model

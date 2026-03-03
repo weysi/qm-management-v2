@@ -5,8 +5,7 @@
   "draft_groups": [
     {
       "name": "quality_policy",
-      "tokens": ["QUALITY_POLICY", "SCOPE"],
-      "retrieval_role": "REFERENCE"
+      "tokens": ["QUALITY_POLICY", "SCOPE"]
     }
   ],
   "replacement_mode": "SIMPLE_TEXT"

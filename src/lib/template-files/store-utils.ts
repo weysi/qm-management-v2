@@ -44,20 +44,20 @@ export function templateFileToMetadata(file: TemplateFile): TemplateFileMetadata
   const hasGeneratedVersion = Boolean(file.generatedBase64);
 
   return {
-    id: file.id,
-    manualId: file.manualId,
-    path: file.path,
-    name: file.name,
-    ext: file.ext,
-    mimeType: file.mimeType,
-    size: file.size,
-    placeholders: file.placeholders,
-    unresolvedPlaceholders: file.unresolvedPlaceholders,
-    status: file.status,
-    error: file.error,
-    hasGeneratedVersion,
-    lastGeneratedAt: file.lastGeneratedAt,
-    createdAt: file.createdAt,
-    updatedAt: file.updatedAt,
-  };
+		id: file.id,
+		handbookId: file.handbookId,
+		path: file.path,
+		name: file.name,
+		ext: file.ext,
+		mimeType: file.mimeType,
+		size: file.size,
+		placeholders: file.placeholders,
+		unresolvedPlaceholders: file.unresolvedPlaceholders,
+		status: file.status,
+		error: file.error,
+		hasGeneratedVersion,
+		lastGeneratedAt: file.lastGeneratedAt,
+		createdAt: file.createdAt,
+		updatedAt: file.updatedAt,
+	};
 }

@@ -1,1577 +1,513 @@
 openapi: 3.0.3
-
 info:
-  title: QM RAG Backend API
-  version: '1.0.0'
+  title: QM Documents Backend API
+  version: 1.0.0
   description: |
-    RAG-powered backend for generating ISO compliance handbooks (ISO 9001, SSCP, ISO 14007).
+    Document template backend for handbook-scoped uploads, placeholder extraction, rendering, and AI rewrite.
 
     ## Authentication
-    **No authentication required.** All endpoints are completely open.
-    There are no tokens, API keys, session cookies, or any other auth mechanism.
-    Tenant isolation is application-level via `tenant_id` parameters per request — not enforced by middleware.
+    **No authentication required.** All endpoints are open.
 
-    ## Tenant Isolation
-    - **Database level:** All tables live in the PostgreSQL `rag` schema (`search_path=rag,public`)
-    - **File level:** Files are stored under `data/tenants/<tenant_id>/manuals/<manual_id>/`
-    - **Application level:** Queries filter by `manual` FK → `tenant` FK chain. No middleware enforcement.
-
-    ## Pipeline Flow
-    1. **`POST start-package`** → Creates tenant + manual, seeds variable keys from package schema, copies package files, triggers full indexing
-    2. **`POST ingest`** → Re-indexes existing assets (optional force refresh)
-    3. **`POST plan`** → AI builds a generation plan mapping templates to variables
-    4. **`POST generate`** → Resolves variables (customer data → defaults → AI), fills OOXML templates, produces output files
-    5. **`POST chat`** → RAG Q&A over indexed documents (hybrid vector + FTS retrieval)
-
-    ## Supported Packages
-    | Code | Standard | Version | Languages | Variables |
-    |------|----------|---------|-----------|-----------|
-    | `ISO9001` | ISO 9001 Quality Management | `v1` | German | 15 tokens |
-    | `SSCP` | SSCP Security | `v1` | English | 3 tokens |
-    | `ISO14007` | ISO 14007 Environmental Costs | `v1` | English | 5 tokens |
-
-    ## Run Tracking
-    Every pipeline operation creates a `RagRun` record with lifecycle tracking (QUEUED → RUNNING → SUCCEEDED/FAILED).
-    Granular `RagRunEvent` logs provide timestamped DEBUG/INFO/WARN/ERROR entries for each step.
-
-    ## Technology Stack
-    Django 5.2 + DRF, PostgreSQL 16 + pgvector, Celery + Redis, OpenAI SDK
-
-  contact:
-    name: QM Management Team
-
-servers:
-  - url: http://localhost:8001
-    description: Local development server
-
-tags:
-  - name: Health
-    description: Server health check
-  - name: Assets
-    description: |
-      File upload, listing, binary retrieval, and ZIP download.
-      Assets represent every file in the system — templates (DOCX/PPTX/XLSX containing `{{PLACEHOLDER}}` tokens),
-      reference documents (PDF/DOCX norms), customer uploads, and AI-generated output files.
-  - name: Generation
-    description: |
-      Package initialization, file ingestion, AI planning, and template generation.
-      This is the core pipeline that transforms template files + client data into filled ISO handbooks.
-  - name: RAG Chat
-    description: |
-      Retrieval-Augmented Generation chat interface.
-      Hybrid search (vector similarity + full-text search) with Reciprocal Rank Fusion merging.
-  - name: Runs
-    description: |
-      Pipeline run tracking and event logs.
-      Every operation (ingest, plan, generate, chat) creates a run for observability and debugging.
-
+    ## Scope
+    All documents are scoped by `handbook_id`.
 paths:
-  /health/:
+  /api/v1/clients/:
     get:
-      tags: [Health]
-      operationId: healthCheck
-      summary: Health check
-      description: Returns server status. Used by Docker health checks and load balancers.
+      operationId: v1_clients_list
+      description: CRUD endpoints for consulting clients.
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
       responses:
         '200':
-          description: Server is healthy
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: 'ok'
-                    description: Always "ok" when server is running
-
-  /api/v1/assets/local-upload:
-    post:
-      tags: [Assets]
-      operationId: localUpload
-      summary: Upload file (local storage)
-      description: |
-        Upload a file to a manual via multipart/form-data.
-
-        The file is stored on local disk under `data/tenants/<tenant_id>/manuals/<manual_id>/<role_folder>/`.
-
-        After upload, the file is **immediately indexed**:
-        - Text extracted (DOCX/PPTX/XLSX/PDF)
-        - Split into chunks (paragraph-boundary, ~2400 chars, 300 overlap)
-        - OpenAI embeddings generated (text-embedding-3-small, 1536 dimensions)
-        - PostgreSQL FTS vectors created
-        - `{{PLACEHOLDER}}` tokens detected and stored
-
-        The indexing run is tracked via the returned `run_id`.
-
-        If the manual or tenant doesn't exist yet, they are created automatically
-        using `ensure_manual()`.
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/LocalUploadRequest'
-      responses:
-        '201':
-          description: File uploaded and indexed successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UploadResponse'
-        '400':
-          description: Missing file, missing manual_id, or invalid role
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '500':
-          description: File uploaded but indexing failed
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    description: Indexing failure message
-                  asset_id:
-                    type: string
-                    format: uuid
-                    description: The asset was created on disk but indexing failed
-
-  /api/v1/assets/presign-upload:
-    post:
-      tags: [Assets]
-      operationId: presignUpload
-      summary: Presign upload (not implemented)
-      description: |
-        S3 presigned upload endpoint. Returns **501** — not available in local-first mode.
-        Reserved for future S3 storage integration.
-      responses:
-        '501':
-          description: Not implemented
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: 'S3 presign upload is not enabled in local-first mode.'
-                  todo:
-                    type: string
-                    example: 'Implement S3Storage and presign upload endpoints.'
-
-  /api/v1/assets/presign-download:
-    post:
-      tags: [Assets]
-      operationId: presignDownload
-      summary: Presign download (not implemented)
-      description: |
-        S3 presigned download endpoint. Returns **501** — not available in local-first mode.
-        Reserved for future S3 storage integration.
-      responses:
-        '501':
-          description: Not implemented
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                  todo:
-                    type: string
-
-  /api/v1/assets/{asset_id}/binary:
-    get:
-      tags: [Assets]
-      operationId: getAssetBinary
-      summary: Get asset binary
-      description: |
-        Download the binary content of an asset file.
-
-        **Version logic:**
-        - `?version=original` (default): Returns the source template. If the asset itself is a
-          GENERATED_OUTPUT, follows the `source_asset` FK to return the original template.
-        - `?version=generated`: Returns the AI-generated output version. If the asset is a
-          TEMPLATE, finds the latest GENERATED_OUTPUT linked via `source_asset` FK.
-
-        The response includes appropriate `Content-Type`, `Content-Disposition`, and `Content-Length` headers.
-      parameters:
-        - name: asset_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: UUID of the asset
-        - name: version
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [original, generated]
-            default: original
-          description: Which version to retrieve
-      responses:
-        '200':
-          description: Binary file content
-          content:
-            application/octet-stream:
-              schema:
-                type: string
-                format: binary
-        '400':
-          description: Invalid version parameter
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Asset not found or generated version not available
-
-  /api/v1/manuals/{manual_id}/assets:
-    get:
-      tags: [Assets]
-      operationId: listManualAssets
-      summary: List manual assets
-      description: |
-        Returns all assets linked to a manual. Optionally filter by `role` query parameter.
-
-        Each asset payload includes:
-        - File metadata (name, extension, MIME type, size)
-        - Detected `{{PLACEHOLDER}}` tokens from the template
-        - Which placeholders remain **unresolved** (not yet in `RagVariableValue`)
-        - Whether a **generated output** version exists (and its ID + timestamp)
-
-        Returns an empty array (not 404) if the manual doesn't exist.
-      parameters:
-        - name: manual_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: 'Manual ID (e.g. `manual-0001`)'
-        - name: role
-          in: query
-          required: false
-          schema:
-            type: string
-            enum: [TEMPLATE, REFERENCE, CUSTOMER_REFERENCE, GENERATED_OUTPUT]
-          description: Filter by asset role
-      responses:
-        '200':
-          description: Asset list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  assets:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/AssetPayload'
-
-  /api/v1/manuals/{manual_id}/outputs/download:
-    post:
-      tags: [Assets]
-      operationId: downloadManualOutputs
-      summary: Download manual outputs as ZIP
-      description: |
-        Generates a ZIP archive containing selected assets from a manual.
-
-        **Resolution logic:**
-        - For **TEMPLATE** assets: prefers the latest generated output version. If `generated_only=true`
-          and no generated version exists, the template is skipped.
-        - For **GENERATED_OUTPUT** assets: included directly using the source template's `package_rel_path`.
-
-        The ZIP preserves the original path tree structure from `package_rel_path`.
-      parameters:
-        - name: manual_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Manual ID
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DownloadOutputsRequest'
-      responses:
-        '200':
-          description: ZIP archive
-          content:
-            application/zip:
-              schema:
-                type: string
-                format: binary
-          headers:
-            Content-Disposition:
-              schema:
-                type: string
-                example: 'attachment; filename="manual-0001-templates.zip"'
-        '400':
-          description: Invalid file_ids or no files available
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/manuals/{manual_id}/start-package:
-    post:
-      tags: [Generation]
-      operationId: startPackage
-      summary: Initialize a package for a manual
-      description: |
-        **First step in the pipeline.** Seeds variable keys from the package schema, copies
-        package source files (templates + references) into the manual's tenant directory,
-        and triggers full indexing.
-
-        Creates the `RagTenant` and `RagManual` records if they don't exist.
-
-        **Indexing includes:**
-        - Classify files by role (TEMPLATE vs REFERENCE) using path prefix rules
-        - Extract text from DOCX/PPTX/XLSX/PDF
-        - Detect `{{PLACEHOLDER}}` tokens in OOXML templates
-        - Split text into chunks (~2400 chars, 300 overlap)
-        - Generate OpenAI embeddings (1536-dim)
-        - Create PostgreSQL FTS vectors
-
-        **Sync mode:** If `sync=true`, the request blocks until indexing completes.
-        Otherwise returns 202 immediately with a QUEUED run (processed by Celery worker).
-      parameters:
-        - name: manual_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Manual ID to create/initialize
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/StartPackageRequest'
-      responses:
-        '202':
-          description: Package initialization accepted
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  run:
-                    $ref: '#/components/schemas/RunPayload'
-                  manual_id:
-                    type: string
-                    description: Created or existing manual ID
-                  tenant_id:
-                    type: string
-                    description: Tenant ID
-        '400':
-          description: Missing required fields or unsupported package
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/manuals/{manual_id}/ingest:
-    post:
-      tags: [Generation]
-      operationId: ingestManual
-      summary: Re-index manual assets
-      description: |
-        Triggers re-indexing of all assets in a manual.
-
-        **Deduplication:** If `force=false` (default) and a previous INGEST run succeeded,
-        the existing run is returned with `reused: true` — no work is done. Set `force=true`
-        to re-index regardless.
-
-        **Indexing pipeline:**
-        1. Text extraction from DOCX/PPTX/XLSX/PDF (via python-docx, python-pptx, openpyxl, pypdf)
-        2. Paragraph-boundary chunking (target: 2400 chars, overlap: 300 chars)
-        3. OpenAI embedding generation (text-embedding-3-small, 1536 dimensions)
-        4. PostgreSQL full-text search vector (tsvector) updates
-        5. `{{PLACEHOLDER}}` token detection and `RagTemplatePlaceholder` creation
-      parameters:
-        - name: manual_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Manual ID
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/IngestRequest'
-      responses:
-        '200':
-          description: Previous successful run reused (no re-indexing)
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  run:
-                    $ref: '#/components/schemas/RunPayload'
-                  reused:
-                    type: boolean
-                    description: '`true` when returning a cached successful run'
-                    example: true
-        '202':
-          description: Indexing started
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  run:
-                    $ref: '#/components/schemas/RunPayload'
-        '404':
-          description: Manual not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/manuals/{manual_id}/plan:
-    post:
-      tags: [Generation]
-      operationId: planManual
-      summary: Create AI generation plan
-      description: |
-        Builds a generation plan that maps template files to their required variables
-        and determines how each placeholder will be resolved.
-
-        **Planning steps:**
-        1. Build **deterministic fallback plan** from template assets and their detected placeholders
-        2. Send to OpenAI with `plan_v1` prompt for AI refinement
-        3. Validate AI response; falls back to deterministic plan if invalid
-
-        **Sync mode:** If `sync=true` (default), the response includes the full `plan` object.
-        Otherwise returns 202 with a queued run.
-
-        **`selected_asset_ids`:** Optionally limit planning to a subset of template assets.
-        If omitted, all TEMPLATE assets are included.
-      parameters:
-        - name: manual_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Manual ID
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PlanRequest'
-      responses:
-        '200':
-          description: Plan completed (sync mode)
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  run:
-                    $ref: '#/components/schemas/RunPayload'
-                  plan:
-                    type: object
-                    description: |
-                      Generation plan mapping files to variables and resolution strategies.
-                      Structure depends on the package playbook.
-        '202':
-          description: Planning queued (async mode)
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  run:
-                    $ref: '#/components/schemas/RunPayload'
-        '400':
-          description: Invalid selected_asset_ids format
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Manual not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/manuals/{manual_id}/generate:
-    post:
-      tags: [Generation]
-      operationId: generateManual
-      summary: Generate manual output files
-      description: |
-        Executes the full generation pipeline to produce filled ISO handbook files.
-
-        **Pipeline:**
-        1. **Build plan** — Identifies template files and their required placeholders
-        2. **Resolve variables** — Priority-ordered resolution chain:
-           - `CUSTOMER_INPUT` (from `customer_profile`)
-           - `HUMAN_OVERRIDE` (from `global_overrides` / `file_overrides_by_file`)
-           - `DEFAULT` (from `RagVariableKey.default_value`)
-           - `AI_INFER` (AI infers from customer data + RAG context, `infer_variables_v1` prompt)
-           - `AI_DRAFT` (AI generates rich text content from RAG context, `draft_variables_v1` prompt)
-        3. **Apply placeholders** — Opens each OOXML template (DOCX/PPTX/XLSX), replaces
-           `{{TOKEN}}` patterns in all XML entries (word/*.xml, ppt/*.xml, xl/*.xml)
-        4. **Register outputs** — Creates `GENERATED_OUTPUT` assets linked via `source_asset` FK
-
-        **Report** (returned when `sync=true`) structure:
-        ```json
-        {
-          "status": "SUCCEEDED | PARTIAL | FAILED",
-          "files": [{"path": "...", "status": "ok|error", "unresolved": [...]}],
-          "summary": {"total": N, "succeeded": N, "failed": N}
-        }
-        ```
-
-        **Override hierarchy:**
-        - `customer_profile`: Client form data as `{token: value}` (e.g. `{"COMPANY_NAME": "Acme GmbH"}`)
-        - `global_overrides`: Applied to all files after customer_profile
-        - `file_overrides_by_file`: Per-file overrides as `{asset_id: {token: value}}`
-      parameters:
-        - name: manual_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Manual ID
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/GenerateRequest'
-      responses:
-        '200':
-          description: Generation completed (sync mode)
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  run:
-                    $ref: '#/components/schemas/RunPayload'
-                  report:
-                    $ref: '#/components/schemas/GenerationReport'
-        '202':
-          description: Generation queued (async mode)
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  run:
-                    $ref: '#/components/schemas/RunPayload'
-        '400':
-          description: Invalid parameter format
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Manual not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/chat:
-    post:
-      tags: [RAG Chat]
-      operationId: chat
-      summary: Chat with indexed documents
-      description: |
-        Retrieval-Augmented Generation chat endpoint.
-
-        **Pipeline:**
-        1. **Router** — AI classifies user intent using `router_v1` prompt.
-           Intents: QA, SEARCH, SUMMARY, OFF_TOPIC
-        2. **Retrieval** — Hybrid search over indexed document chunks:
-           - **Vector search:** Cosine similarity via pgvector HNSW index (1536-dim embeddings)
-           - **Full-text search:** PostgreSQL tsvector GIN index
-           - **Merging:** Reciprocal Rank Fusion (RRF, k=60)
-        3. **Answer** — AI generates a markdown answer with inline citations using `chat_answer_v1` prompt
-
-        Each chat call creates a tracked `RagRun` of kind CHAT.
-
-        `session_id` is optional and currently unused — reserved for future multi-turn conversation context.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ChatRequest'
-      responses:
-        '200':
-          description: Chat response with answer and citations
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatResponse'
-        '400':
-          description: Missing manual_id or message
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Manual not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/v1/manuals/{manual_id}/runs/{run_id}:
-    get:
-      tags: [Runs]
-      operationId: getRun
-      summary: Get run details and events
-      description: |
-        Returns full details of a pipeline run including all logged events.
-
-        **RagRun** tracks every pipeline operation with:
-        - `kind`: What type of operation (INGEST, PLAN, GENERATE, CHAT)
-        - `status`: Lifecycle state (QUEUED → RUNNING → SUCCEEDED/FAILED/CANCELLED)
-        - `model`: Which OpenAI model was used
-        - `prompt_version`: Which prompt template version was used
-        - `metrics`: JSON blob with step-specific data (generation report, plan output, etc.)
-        - `started_at` / `finished_at`: Timing for performance monitoring
-
-        **RagRunEvent** entries provide granular, timestamped logs for debugging:
-        - `DEBUG`: Internal processing details
-        - `INFO`: Progress milestones (e.g. "Indexed 15 chunks")
-        - `WARN`: Non-fatal issues (e.g. "2 unresolved placeholders")
-        - `ERROR`: Failures within the run
-      parameters:
-        - name: manual_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Manual ID the run belongs to
-        - name: run_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-          description: Run UUID
-      responses:
-        '200':
-          description: Run details with events
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RunDetailResponse'
-        '404':
-          description: Run not found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-components:
-  securitySchemes: {}
-  # NOTE: No authentication is configured. All endpoints are open.
-
-  schemas:
-    # ─── Error ───────────────────────────────────────────────────
-
-    ErrorResponse:
-      type: object
-      properties:
-        error:
-          type: string
-          description: Human-readable error message
-      required: [error]
-
-    # ─── Database Models ─────────────────────────────────────────
-
-    RagTenant:
-      type: object
-      description: |
-        **Multi-tenancy unit.** All data is isolated by tenant.
-        Tenant ID is a string (not UUID) — typically a slug like `"default-tenant"` or a company identifier.
-        Created automatically when `start-package` or `local-upload` is first called with a new tenant_id.
-      properties:
-        id:
-          type: string
-          maxLength: 64
-          description: 'Tenant identifier (PK). Example: `default-tenant`, `550e8400-e29b-41d4-a716-446655440001`'
-          example: 'default-tenant'
-        name:
-          type: string
-          maxLength: 255
-          description: Human-readable display name for the tenant
-          example: 'Default Tenant'
-        created_at:
-          type: string
-          format: date-time
-          description: When the tenant was created (auto-set)
-      required: [id, name]
-
-    RagManual:
-      type: object
-      description: |
-        **A handbook generation project** tied to a specific ISO standard package.
-        Represents one manual being created for one client.
-        Links to a tenant and specifies which package (e.g. ISO9001/v1) to use.
-
-        **Status lifecycle:**
-        - `DRAFT` → initial state after creation
-        - `IN_PROGRESS` → generation pipeline is running
-        - `READY` → all templates successfully generated
-        - `FAILED` → generation failed
-      properties:
-        id:
-          type: string
-          maxLength: 128
-          description: 'Manual ID (PK). Typically formatted as `<tenant>/<package>/<version>` or custom.'
-          example: 'default-tenant/ISO9001/v1'
-        tenant_id:
-          type: string
-          description: FK to RagTenant
-        package_code:
-          type: string
-          maxLength: 64
-          description: 'Package standard code'
-          enum: [ISO9001, SSCP, ISO14007]
-          example: 'ISO9001'
-        package_version:
-          type: string
-          maxLength: 32
-          description: 'Package version'
-          example: 'v1'
-        status:
-          type: string
-          enum: [DRAFT, IN_PROGRESS, READY, FAILED]
-          description: 'Manual lifecycle status'
-          example: 'DRAFT'
-        created_at:
-          type: string
-          format: date-time
-      required: [id, tenant_id, package_code, package_version, status]
-
-    RagAsset:
-      type: object
-      description: |
-        **Every file in the system** — uploads, package files, and AI-generated outputs.
-
-        **Role types:**
-        - `TEMPLATE`: Template files (DOCX/PPTX/XLSX) containing `{{PLACEHOLDER}}` tokens to be filled
-        - `REFERENCE`: Norm/standard reference documents (PDF/DOCX/DOC) used for RAG context
-        - `CUSTOMER_REFERENCE`: Customer-uploaded reference materials for additional context
-        - `GENERATED_OUTPUT`: AI-generated output files; linked to source TEMPLATE via `source_asset` FK
-
-        **Source types:**
-        - `PACKAGE_VAULT`: Came from the package's source directory (seeded by `start-package`)
-        - `CUSTOMER_UPLOAD`: Uploaded by user via `local-upload` endpoint
-        - `AI_GENERATED`: Created by the generation pipeline
-
-        **Uniqueness:** `(manual, package_rel_path, sha256)` — same file path + same content hash is deduplicated.
-
-        **Self-referential FK:** `source_asset` links GENERATED_OUTPUT → source TEMPLATE.
-        This enables the version toggle (`?version=original|generated`) in the binary endpoint.
-      properties:
-        id:
-          type: string
-          format: uuid
-          description: Auto-generated UUID (PK)
-        tenant_id:
-          type: string
-          description: FK to RagTenant
-        manual_id:
-          type: string
-          description: FK to RagManual
-        source_asset_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: 'FK to self. For GENERATED_OUTPUT assets, points to the source TEMPLATE. Null for non-generated assets.'
-        role:
-          type: string
-          enum: [TEMPLATE, REFERENCE, CUSTOMER_REFERENCE, GENERATED_OUTPUT]
-          description: 'Asset role in the pipeline'
-        source:
-          type: string
-          enum: [PACKAGE_VAULT, CUSTOMER_UPLOAD, AI_GENERATED]
-          description: 'How the asset entered the system'
-        local_path:
-          type: string
-          description: 'Absolute path on disk (e.g. `/app/data/tenants/default-tenant/manuals/m1/templates/doc.docx`)'
-        sha256:
-          type: string
-          maxLength: 64
-          description: 'SHA-256 content hash (hex). Used for deduplication.'
-        mime:
-          type: string
-          description: 'MIME type (e.g. `application/vnd.openxmlformats-officedocument.wordprocessingml.document`)'
-        file_ext:
-          type: string
-          maxLength: 16
-          description: 'File extension without dot (e.g. `docx`, `pptx`, `pdf`)'
-        package_rel_path:
-          type: string
-          description: 'Path relative to package root. Preserved as ZIP entry path during download.'
-        s3_bucket:
-          type: string
-          nullable: true
-          description: 'S3 bucket name (reserved for future use — currently always null)'
-        s3_key:
-          type: string
-          nullable: true
-          description: 'S3 object key (reserved for future use — currently always null)'
-        created_at:
-          type: string
-          format: date-time
-      required:
-        [
-          id,
-          tenant_id,
-          manual_id,
-          role,
-          source,
-          local_path,
-          sha256,
-          mime,
-          file_ext,
-          package_rel_path,
-        ]
-
-    RagTemplatePlaceholder:
-      type: object
-      description: |
-        **Detected `{{TOKEN}}` patterns** in OOXML template files.
-
-        Created during indexing by scanning XML entries in DOCX/PPTX/XLSX archives.
-        Regex: `\{\{([A-Z0-9_]+)\}\}`
-
-        **Status:**
-        - `KNOWN`: Token exists in the package's `RagVariableKey` schema (e.g. `COMPANY_NAME`)
-        - `UNKNOWN`: Token found in template but not defined in the variable schema
-
-        `sample_context` stores surrounding text from the first occurrence for debugging.
-      properties:
-        id:
-          type: string
-          maxLength: 64
-          description: 'Deterministic hash-based ID'
-        asset_id:
-          type: string
-          format: uuid
-          description: 'FK to the TEMPLATE asset containing this placeholder'
-        token:
-          type: string
-          maxLength: 255
-          description: 'Placeholder name without braces (e.g. `COMPANY_NAME`)'
-          example: 'COMPANY_NAME'
-        occurrences:
-          type: integer
-          description: 'Number of times this token appears in the template file'
-          example: 3
-        sample_context:
-          type: string
-          description: 'Surrounding text from first occurrence (for debugging)'
-        status:
-          type: string
-          enum: [KNOWN, UNKNOWN]
-          description: 'Whether this token is defined in the package variable schema'
-      required: [id, asset_id, token, occurrences, status]
-
-    RagDocumentChunk:
-      type: object
-      description: |
-        **Indexed text chunk** from an asset file. The core data structure for RAG retrieval.
-
-        **Creation:** During ingestion, file text is split at paragraph boundaries into chunks
-        of ~2400 characters with 300-character overlap (configurable per package).
-
-        **Search capabilities:**
-        - **Vector similarity:** `embedding` field (1536-dim, OpenAI text-embedding-3-small) indexed
-          with pgvector HNSW (cosine distance, m=16, ef_construction=64)
-        - **Full-text search:** `tsv` field (PostgreSQL tsvector) indexed with GIN
-
-        **Retrieval merging:** Both search results are combined via Reciprocal Rank Fusion (RRF, k=60).
-
-        `token_count` is estimated as `len(text) // 4` (approximate for OpenAI tokenization).
-
-        `metadata` contains rich context: `{package_code, package_version, language, role, file_path, ...}`
-      properties:
-        id:
-          type: string
-          maxLength: 64
-          description: 'Deterministic hash-based ID (`sha256(asset_id + chunk_index)`)'
-        asset_id:
-          type: string
-          format: uuid
-          description: 'FK to the source asset'
-        chunk_index:
-          type: integer
-          description: 'Sequence number within the asset (0-based)'
-        text:
-          type: string
-          description: 'Chunk text content'
-        token_count:
-          type: integer
-          description: 'Estimated token count (len(text) // 4)'
-        tsv:
-          type: string
-          description: 'PostgreSQL SearchVector for full-text search (auto-populated, not directly readable via API)'
-        embedding:
-          type: array
-          items:
-            type: number
-            format: float
-          description: '1536-dimensional embedding vector (OpenAI text-embedding-3-small)'
-        metadata:
-          type: object
-          additionalProperties: true
-          description: 'Rich metadata: package_code, package_version, language, role, file_path, etc.'
-        created_at:
-          type: string
-          format: date-time
-      required: [id, asset_id, chunk_index, text, token_count]
-
-    RagVariableKey:
-      type: object
-      description: |
-        **Variable definition from a package schema.** Defines what `{{TOKEN}}` placeholders
-        exist for a standard and how they should be resolved.
-
-        Seeded from JSON schema files (e.g. `packages/schemas/ISO9001_v1_variables.json`)
-        during `start-package`.
-
-        **Generation policies:**
-        - `DETERMINISTIC`: Value comes from `default_value` or customer input. No AI needed.
-        - `AI_INFER`: AI infers the value from customer data context (e.g. QM manager name from
-          company structure). Uses `infer_variables_v1` prompt.
-        - `AI_DRAFT`: AI generates rich text content using RAG context from indexed documents
-          (e.g. quality policy, environmental scope). Uses `draft_variables_v1` prompt.
-
-        **Type system:**
-        - `string`: Plain text (most common)
-        - `number`: Numeric value
-        - `date`: ISO date string
-        - `enum`: One of a predefined set of values
-        - `rich_text`: Multi-paragraph formatted content (typically AI_DRAFT)
-
-        **Uniqueness:** `(package_code, package_version, token)`
-      properties:
-        id:
-          type: string
-          format: uuid
-          description: 'Auto-generated UUID (PK)'
-        package_code:
-          type: string
-          maxLength: 64
-          description: 'Package this variable belongs to'
-          example: 'ISO9001'
-        package_version:
-          type: string
-          maxLength: 32
-          example: 'v1'
-        token:
-          type: string
-          maxLength: 255
-          description: 'Placeholder token name (without braces)'
-          example: 'COMPANY_NAME'
-        type:
-          type: string
-          enum: [string, number, date, enum, rich_text]
-          description: 'Data type of the variable'
-          example: 'string'
-        required:
-          type: boolean
-          description: 'Whether this variable must be resolved before generation'
-        description:
-          type: string
-          description: 'Human-readable description of what this variable represents'
-          example: 'Full legal name of the company'
-        examples:
-          type: array
-          items:
-            type: string
-          description: 'Example values for this variable'
-          example: ['Musterfirma GmbH', 'Acme Corp']
-        default_value:
-          type: string
-          nullable: true
-          description: 'Default value used when no other source provides a value'
-        generation_policy:
-          type: string
-          enum: [DETERMINISTIC, AI_INFER, AI_DRAFT]
-          description: 'How this variable is auto-resolved when not provided by the user'
-      required:
-        [
-          id,
-          package_code,
-          package_version,
-          token,
-          type,
-          required,
-          generation_policy,
-        ]
-
-    RagVariableValue:
-      type: object
-      description: |
-        **Resolved placeholder value** for a specific manual instance.
-
-        Stores the actual value that will replace `{{TOKEN}}` in templates during generation.
-        Created/updated during the `generate` pipeline step.
-
-        **Source tracking:**
-        - `CUSTOMER_INPUT`: Provided by user in `customer_profile` request body
-        - `DEFAULT`: Taken from `RagVariableKey.default_value`
-        - `AI_INFERRED`: AI inferred from customer context (generation_policy=AI_INFER)
-        - `AI_DRAFTED`: AI generated rich content from RAG context (generation_policy=AI_DRAFT)
-        - `HUMAN_OVERRIDE`: Explicitly set via `global_overrides` or `file_overrides_by_file`
-
-        **Confidence:** Float 0.0–1.0, only meaningful for AI-sourced values.
-
-        **Provenance:** JSON blob tracking how the value was derived (e.g. which chunks were
-        used as context, which prompt version, which model).
-
-        **Uniqueness:** `(manual, token)` — one resolved value per token per manual.
-      properties:
-        id:
-          type: string
-          format: uuid
-          description: 'Auto-generated UUID (PK)'
-        manual_id:
-          type: string
-          description: 'FK to RagManual'
-        token:
-          type: string
-          maxLength: 255
-          description: 'Placeholder token name'
-          example: 'COMPANY_NAME'
-        value:
-          type: string
-          description: 'Resolved value that replaces {{TOKEN}} in templates'
-          example: 'Musterfirma GmbH'
-        source:
-          type: string
-          enum:
-            [CUSTOMER_INPUT, DEFAULT, AI_INFERRED, AI_DRAFTED, HUMAN_OVERRIDE]
-          description: 'How this value was determined'
-        confidence:
-          type: number
-          format: float
-          nullable: true
-          description: 'AI confidence score (0.0–1.0). Null for non-AI sources.'
-          minimum: 0
-          maximum: 1
-        provenance:
-          type: object
-          additionalProperties: true
-          description: 'JSON tracking value origin: model, prompt_version, context_chunks, etc.'
-        updated_at:
-          type: string
-          format: date-time
-          description: 'Last update timestamp (auto-set on save)'
-      required: [id, manual_id, token, value, source]
-
-    RagRun:
-      type: object
-      description: |
-        **Pipeline execution record.** Every operation creates a run for tracking and observability.
-
-        **Kind types:**
-        - `INGEST`: File indexing — text extraction, chunking, embedding, FTS, placeholder detection
-        - `PLAN`: AI planning — maps templates to variables and resolution strategies
-        - `GENERATE`: Template filling — resolves variables + fills OOXML + produces output files
-        - `CHAT`: RAG Q&A — router → retrieval → answer
-
-        **Status lifecycle:**
-        - `QUEUED`: Created, waiting for Celery worker
-        - `RUNNING`: Worker picked up the task
-        - `SUCCEEDED`: Completed successfully
-        - `FAILED`: An error occurred (check `metrics` and events for details)
-        - `CANCELLED`: Manually cancelled (not currently implemented)
-
-        **Metrics:** JSON blob with step-specific data:
-        - INGEST: `{assets_indexed, chunks_created, ...}`
-        - PLAN: `{plan: {...}}`
-        - GENERATE: `{status, files: [...], summary: {...}}`
-        - CHAT: `{intent, context_chunks, ...}`
-      properties:
-        id:
-          type: string
-          format: uuid
-        manual_id:
-          type: string
-        kind:
-          type: string
-          enum: [INGEST, PLAN, GENERATE, CHAT]
-        status:
-          type: string
-          enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED]
-        prompt_version:
-          type: string
-          description: 'Prompt template version used (e.g. `plan_v1`, `chat_answer_v1`)'
-        model:
-          type: string
-          description: 'OpenAI model used (e.g. `gpt-4o-mini`)'
-        metrics:
-          type: object
-          additionalProperties: true
-          description: 'Step-specific result data'
-        started_at:
-          type: string
-          format: date-time
-          nullable: true
-        finished_at:
-          type: string
-          format: date-time
-          nullable: true
-      required: [id, manual_id, kind, status]
-
-    RagRunEvent:
-      type: object
-      description: |
-        **Granular event log** within a pipeline run.
-
-        Events are timestamped and ordered for debugging and monitoring.
-
-        **Levels:**
-        - `DEBUG`: Internal processing details (e.g. "Processing chunk 5/20")
-        - `INFO`: Progress milestones (e.g. "Indexed 15 chunks for asset X")
-        - `WARN`: Non-fatal issues (e.g. "2 unresolved placeholders remain")
-        - `ERROR`: Failures (e.g. "OpenAI API call failed: rate limit")
-
-        `payload` contains structured data relevant to the event (e.g. chunk IDs, error traces, counts).
-      properties:
-        id:
-          type: string
-          format: uuid
-        run_id:
-          type: string
-          format: uuid
-          description: 'FK to RagRun'
-        ts:
-          type: string
-          format: date-time
-          description: 'Event timestamp (auto-set)'
-        level:
-          type: string
-          enum: [DEBUG, INFO, WARN, ERROR]
-        message:
-          type: string
-          description: 'Human-readable log message'
-        payload:
-          type: object
-          additionalProperties: true
-          description: 'Structured event data'
-      required: [id, run_id, ts, level, message]
-
-    # ─── Request Schemas ─────────────────────────────────────────
-
-    LocalUploadRequest:
-      type: object
-      description: Multipart form data for file upload
-      properties:
-        file:
-          type: string
-          format: binary
-          description: 'The file to upload (DOCX, PPTX, XLSX, PDF, etc.)'
-        manual_id:
-          type: string
-          description: 'Target manual ID (required)'
-        tenant_id:
-          type: string
-          description: 'Tenant ID'
-          default: 'default-tenant'
-        package_code:
-          type: string
-          description: 'Package code'
-          default: 'ISO9001'
-          enum: [ISO9001, SSCP, ISO14007]
-        package_version:
-          type: string
-          description: 'Package version'
-          default: 'v1'
-        role:
-          type: string
-          description: 'Asset role (cannot upload as GENERATED_OUTPUT)'
-          default: 'TEMPLATE'
-          enum: [TEMPLATE, REFERENCE, CUSTOMER_REFERENCE]
-        path:
-          type: string
-          description: 'Relative path within the role folder. Defaults to original filename. Path traversal (`..`) is sanitized.'
-      required: [file, manual_id]
-
-    StartPackageRequest:
-      type: object
-      properties:
-        package_code:
-          type: string
-          enum: [ISO9001, SSCP, ISO14007]
-          description: 'Package standard code'
-          example: 'ISO9001'
-        package_version:
-          type: string
-          description: 'Package version'
-          example: 'v1'
-        tenant_id:
-          type: string
-          description: "Tenant identifier (created if it doesn't exist)"
-          example: 'default-tenant'
-        sync:
-          type: boolean
-          default: false
-          description: 'If true, block until indexing completes. Otherwise return 202 immediately.'
-        force:
-          type: boolean
-          default: false
-          description: 'If true, re-index even if package files already exist on disk.'
-      required: [package_code, package_version, tenant_id]
-
-    IngestRequest:
-      type: object
-      properties:
-        force:
-          type: boolean
-          default: false
-          description: 'If true, re-index even if a previous INGEST run succeeded. If false, returns cached run.'
-        sync:
-          type: boolean
-          default: false
-          description: 'If true, block until indexing completes.'
-
-    PlanRequest:
-      type: object
-      properties:
-        sync:
-          type: boolean
-          default: true
-          description: 'If true (default), block until planning completes and return the plan.'
-        selected_asset_ids:
-          type: array
-          items:
-            type: string
-            format: uuid
-          nullable: true
-          description: 'Optional subset of TEMPLATE asset UUIDs to plan for. If omitted, all TEMPLATE assets are included.'
-
-    GenerateRequest:
-      type: object
-      properties:
-        sync:
-          type: boolean
-          default: true
-          description: 'If true (default), block until generation completes and return the report.'
-        customer_profile:
-          type: object
-          additionalProperties:
-            type: string
-          description: |
-            Client data as token→value map.
-            These are the highest-priority values for known tokens.
-            Example: `{"COMPANY_NAME": "Acme GmbH", "CEO_NAME": "Max Mustermann", "EMPLOYEE_COUNT": "150"}`
-          example:
-            COMPANY_NAME: 'Acme GmbH'
-            CEO_NAME: 'Max Mustermann'
-            EMPLOYEE_COUNT: '150'
-        selected_asset_ids:
-          type: array
-          items:
-            type: string
-            format: uuid
-          nullable: true
-          description: 'Optional subset of TEMPLATE asset UUIDs to generate. If omitted, all TEMPLATE assets are generated.'
-        global_overrides:
-          type: object
-          additionalProperties:
-            type: string
-          nullable: true
-          description: 'Global token→value overrides applied to all files. Takes precedence over defaults and AI values.'
-        file_overrides_by_file:
-          type: object
-          additionalProperties:
-            type: object
-            additionalProperties:
-              type: string
-          nullable: true
-          description: |
-            Per-file overrides. Structure: `{asset_uuid: {token: value}}`.
-            Overrides for a specific file only, merged with global overrides.
-
-    ChatRequest:
-      type: object
-      properties:
-        manual_id:
-          type: string
-          description: "Manual ID to search within. Only chunks from this manual's assets are retrieved."
-          example: 'default-tenant/ISO9001/v1'
-        message:
-          type: string
-          description: "User's question or search query"
-          example: 'What are the quality objectives defined in chapter 5?'
-        session_id:
-          type: string
-          nullable: true
-          description: 'Optional session ID for multi-turn conversation context (reserved for future use)'
-      required: [manual_id, message]
-
-    DownloadOutputsRequest:
-      type: object
-      properties:
-        file_ids:
-          type: array
-          items:
-            type: string
-            format: uuid
-          description: 'Array of asset UUIDs to include in the ZIP'
-          minItems: 1
-        generated_only:
-          type: boolean
-          default: false
-          description: "If true, skip TEMPLATE assets that don't have a generated output version"
-      required: [file_ids]
-
-    # ─── Response Schemas ────────────────────────────────────────
-
-    AssetPayload:
-      type: object
-      description: Enriched asset response returned by list and upload endpoints
-      properties:
-        id:
-          type: string
-          format: uuid
-        manual_id:
-          type: string
-        tenant_id:
-          type: string
-        path:
-          type: string
-          description: '`package_rel_path` — relative path within package'
-        name:
-          type: string
-          description: 'Filename extracted from path'
-        ext:
-          type: string
-          description: 'File extension (without dot)'
-        mime_type:
-          type: string
-        size:
-          type: integer
-          description: 'File size in bytes (from disk stat)'
-        role:
-          type: string
-          enum: [TEMPLATE, REFERENCE, CUSTOMER_REFERENCE, GENERATED_OUTPUT]
-        source:
-          type: string
-          enum: [PACKAGE_VAULT, CUSTOMER_UPLOAD, AI_GENERATED]
-        created_at:
-          type: string
-          format: date-time
-        placeholders:
-          type: array
-          items:
-            type: string
-          description: 'All detected `{{TOKEN}}` names in this asset (sorted)'
-        unresolved_placeholders:
-          type: array
-          items:
-            type: string
-          description: "Tokens from `placeholders` that don't have a `RagVariableValue` yet"
-        has_generated_version:
-          type: boolean
-          description: 'Whether a GENERATED_OUTPUT asset exists for this template'
-        last_generated_at:
-          type: string
-          format: date-time
-          nullable: true
-          description: 'Timestamp of the latest generated version (null if none)'
-        generated_asset_id:
-          type: string
-          format: uuid
-          nullable: true
-          description: 'UUID of the latest generated output asset (null if none)'
-
-    RunPayload:
-      type: object
-      description: Serialized run returned by generation endpoints
-      properties:
-        id:
-          type: string
-          format: uuid
-        manual_id:
-          type: string
-        kind:
-          type: string
-          enum: [INGEST, PLAN, GENERATE, CHAT]
-        status:
-          type: string
-          enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED]
-        prompt_version:
-          type: string
-        model:
-          type: string
-        metrics:
-          type: object
-          additionalProperties: true
-        started_at:
-          type: string
-          format: date-time
-          nullable: true
-        finished_at:
-          type: string
-          format: date-time
-          nullable: true
-
-    UploadResponse:
-      type: object
-      properties:
-        asset:
-          $ref: '#/components/schemas/AssetPayload'
-        run_id:
-          type: string
-          format: uuid
-          description: 'ID of the INGEST run created for this upload'
-
-    ChatResponse:
-      type: object
-      properties:
-        answer_markdown:
-          type: string
-          description: 'AI-generated answer in markdown format with embedded citations'
-        citations:
-          type: array
-          items:
-            type: object
-            properties:
-              chunk_id:
-                type: string
-              asset_id:
-                type: string
-                format: uuid
-              text_snippet:
-                type: string
-              score:
-                type: number
-                format: float
-          description: 'Source chunk citations supporting the answer'
-        suggested_followups:
-          type: array
-          items:
-            type: string
-          description: 'AI-suggested follow-up questions'
-        run_id:
-          type: string
-          format: uuid
-          description: 'ID of the CHAT run for tracking'
-
-    GenerationReport:
-      type: object
-      description: |
-        Report returned by the generate endpoint when sync=true.
-        Contains per-file results and an overall summary.
-      properties:
-        status:
-          type: string
-          enum: [SUCCEEDED, PARTIAL, FAILED]
-          description: |
-            - `SUCCEEDED`: All templates generated successfully
-            - `PARTIAL`: Some templates generated, some failed or have unresolved tokens
-            - `FAILED`: All templates failed
-        files:
-          type: array
-          items:
-            type: object
-            properties:
-              path:
-                type: string
-                description: '`package_rel_path` of the template'
-              asset_id:
-                type: string
-                format: uuid
-              status:
-                type: string
-                enum: [ok, error]
-              unresolved:
                 type: array
                 items:
-                  type: string
-                description: 'Tokens that could not be resolved for this file'
-              error:
-                type: string
-                nullable: true
-                description: 'Error message if status is `error`'
-        summary:
-          type: object
-          properties:
-            total:
-              type: integer
-            succeeded:
-              type: integer
-            failed:
-              type: integer
-
-    RunDetailResponse:
+                  $ref: '#/components/schemas/Client'
+          description: ''
+    post:
+      operationId: v1_clients_create
+      description: CRUD endpoints for consulting clients.
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+          description: ''
+  /api/v1/clients/{id}/:
+    get:
+      operationId: v1_clients_retrieve
+      description: CRUD endpoints for consulting clients.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this client.
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+          description: ''
+    put:
+      operationId: v1_clients_update
+      description: CRUD endpoints for consulting clients.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this client.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClientRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+          description: ''
+    patch:
+      operationId: v1_clients_partial_update
+      description: CRUD endpoints for consulting clients.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this client.
+        required: true
+      tags:
+      - v1
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedClientRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedClientRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedClientRequest'
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+          description: ''
+    delete:
+      operationId: v1_clients_destroy
+      description: CRUD endpoints for consulting clients.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this client.
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/documents:
+    get:
+      operationId: v1_documents_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/documents/{document_id}:
+    get:
+      operationId: v1_documents_retrieve_2
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+    delete:
+      operationId: v1_documents_destroy
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/documents/{document_id}/ai-rewrite:
+    post:
+      operationId: v1_documents_ai_rewrite_create
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/documents/{document_id}/download:
+    get:
+      operationId: v1_documents_download_retrieve
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/documents/{document_id}/render:
+    post:
+      operationId: v1_documents_render_create
+      parameters:
+      - in: path
+        name: document_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/documents/upload:
+    post:
+      operationId: v1_documents_upload_create
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/files:
+    delete:
+      operationId: v1_files_destroy
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/v1/files/tree:
+    get:
+      operationId: v1_files_tree_retrieve
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/v1/handbooks/{handbook_id}/assets:
+    get:
+      operationId: v1_handbooks_assets_retrieve
+      parameters:
+      - in: path
+        name: handbook_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+    post:
+      operationId: v1_handbooks_assets_create
+      parameters:
+      - in: path
+        name: handbook_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - v1
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+components:
+  schemas:
+    Client:
       type: object
       properties:
-        run:
-          type: object
-          properties:
-            id:
-              type: string
-              format: uuid
-            manual_id:
-              type: string
-            kind:
-              type: string
-              enum: [INGEST, PLAN, GENERATE, CHAT]
-            status:
-              type: string
-              enum: [QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED]
-            prompt_version:
-              type: string
-            model:
-              type: string
-            metrics:
-              type: object
-              additionalProperties: true
-            started_at:
-              type: string
-              format: date-time
-              nullable: true
-            finished_at:
-              type: string
-              format: date-time
-              nullable: true
-        events:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: string
-                format: uuid
-              ts:
-                type: string
-                format: date-time
-              level:
-                type: string
-                enum: [DEBUG, INFO, WARN, ERROR]
-              message:
-                type: string
-              payload:
-                type: object
-                additionalProperties: true
-          description: 'Events ordered by timestamp (ascending)'
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        address:
+          type: string
+        zipCity:
+          type: string
+        ceo:
+          type: string
+          maxLength: 255
+        qmManager:
+          type: string
+        employeeCount:
+          type: integer
+        products:
+          type: string
+        services:
+          type: string
+        industry:
+          type: string
+          maxLength: 255
+        logoUrl:
+          type: string
+          nullable: true
+        signatureUrl:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - address
+      - ceo
+      - createdAt
+      - employeeCount
+      - id
+      - industry
+      - name
+      - products
+      - qmManager
+      - services
+      - updatedAt
+      - zipCity
+    ClientRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        address:
+          type: string
+          minLength: 1
+        zipCity:
+          type: string
+          minLength: 1
+        ceo:
+          type: string
+          minLength: 1
+          maxLength: 255
+        qmManager:
+          type: string
+          minLength: 1
+        employeeCount:
+          type: integer
+        products:
+          type: string
+          minLength: 1
+        services:
+          type: string
+          minLength: 1
+        industry:
+          type: string
+          minLength: 1
+          maxLength: 255
+        logoUrl:
+          type: string
+          nullable: true
+          minLength: 1
+        signatureUrl:
+          type: string
+          nullable: true
+          minLength: 1
+      required:
+      - address
+      - ceo
+      - employeeCount
+      - industry
+      - name
+      - products
+      - qmManager
+      - services
+      - zipCity
+    PatchedClientRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        address:
+          type: string
+          minLength: 1
+        zipCity:
+          type: string
+          minLength: 1
+        ceo:
+          type: string
+          minLength: 1
+          maxLength: 255
+        qmManager:
+          type: string
+          minLength: 1
+        employeeCount:
+          type: integer
+        products:
+          type: string
+          minLength: 1
+        services:
+          type: string
+          minLength: 1
+        industry:
+          type: string
+          minLength: 1
+          maxLength: 255
+        logoUrl:
+          type: string
+          nullable: true
+          minLength: 1
+        signatureUrl:
+          type: string
+          nullable: true
+          minLength: 1
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+tags:
+- name: Health
+  description: Server health check
+- name: Documents
+  description: Document upload, render, rewrite, tree, and download

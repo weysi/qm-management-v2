@@ -1,51 +1,86 @@
 {
-	"package_code": "ISO14007",
-	"package_version": "v1",
-	"variables": [
-		{
-			"token": "COMPANY_NAME",
-			"type": "string",
-			"required": true,
-			"description": "Company legal name",
-			"examples": [],
-			"default_value": null,
-			"generation_policy": "DETERMINISTIC"
-		},
-		{
-			"token": "ENVIRONMENTAL_SCOPE",
-			"type": "rich_text",
-			"required": true,
-			"description": "Environmental scope statement",
-			"examples": [],
-			"default_value": null,
-			"generation_policy": "AI_DRAFT"
-		},
-		{
-			"token": "CARBON_BOUNDARY",
-			"type": "rich_text",
-			"required": true,
-			"description": "Organisational boundary for carbon accounting",
-			"examples": [],
-			"default_value": null,
-			"generation_policy": "AI_DRAFT"
-		},
-		{
-			"token": "CARBON_INVENTORY",
-			"type": "rich_text",
-			"required": true,
-			"description": "Description of carbon inventory and data sources",
-			"examples": [],
-			"default_value": null,
-			"generation_policy": "AI_DRAFT"
-		},
-		{
-			"token": "CARBON_REDUCTION_TARGETS",
-			"type": "rich_text",
-			"required": true,
-			"description": "Carbon reduction targets and timeline",
-			"examples": [],
-			"default_value": null,
-			"generation_policy": "AI_DRAFT"
-		}
-	]
+  "package_code": "ISO14007",
+  "package_version": "v1",
+  "variables": [
+    {
+      "name": "company.name",
+      "token": "COMPANY_NAME",
+      "aliases": ["COMPANY_NAME"],
+      "type": "string",
+      "required": true,
+      "source": "user_input",
+      "description": "Company legal name",
+      "constraints": { "min_length": 1 },
+      "enum_options": [],
+      "examples": [],
+      "default_value": null,
+      "redaction": false,
+      "forbidden": false,
+      "generation_policy": "DETERMINISTIC"
+    },
+    {
+      "name": "handbook.environmental_scope",
+      "token": "ENVIRONMENTAL_SCOPE",
+      "aliases": ["ENVIRONMENTAL_SCOPE"],
+      "type": "rich_text",
+      "required": true,
+      "source": "ai_generated",
+      "description": "Environmental scope statement",
+      "constraints": { "min_length": 1 },
+      "enum_options": [],
+      "examples": [],
+      "default_value": null,
+      "redaction": false,
+      "forbidden": false,
+      "generation_policy": "AI_DRAFT"
+    },
+    {
+      "name": "handbook.carbon_boundary",
+      "token": "CARBON_BOUNDARY",
+      "aliases": ["CARBON_BOUNDARY"],
+      "type": "rich_text",
+      "required": true,
+      "source": "ai_generated",
+      "description": "Organisational boundary for carbon accounting",
+      "constraints": { "min_length": 1 },
+      "enum_options": [],
+      "examples": [],
+      "default_value": null,
+      "redaction": false,
+      "forbidden": false,
+      "generation_policy": "AI_DRAFT"
+    },
+    {
+      "name": "handbook.carbon_inventory",
+      "token": "CARBON_INVENTORY",
+      "aliases": ["CARBON_INVENTORY"],
+      "type": "rich_text",
+      "required": true,
+      "source": "ai_generated",
+      "description": "Description of carbon inventory and data sources",
+      "constraints": { "min_length": 1 },
+      "enum_options": [],
+      "examples": [],
+      "default_value": null,
+      "redaction": false,
+      "forbidden": false,
+      "generation_policy": "AI_DRAFT"
+    },
+    {
+      "name": "handbook.carbon_reduction_targets",
+      "token": "CARBON_REDUCTION_TARGETS",
+      "aliases": ["CARBON_REDUCTION_TARGETS"],
+      "type": "rich_text",
+      "required": true,
+      "source": "ai_generated",
+      "description": "Carbon reduction targets and timeline",
+      "constraints": { "min_length": 1 },
+      "enum_options": [],
+      "examples": [],
+      "default_value": null,
+      "redaction": false,
+      "forbidden": false,
+      "generation_policy": "AI_DRAFT"
+    }
+  ]
 }

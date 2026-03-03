@@ -9,22 +9,22 @@ export const TemplateFileStatusSchema = z.enum([
 ]);
 
 export const TemplateFileSchema = z.object({
-  id: z.string().uuid(),
-  manualId: z.string().min(1),
-  path: z.string().min(1),
-  name: z.string().min(1),
-  ext: TemplateFileExtSchema,
-  mimeType: z.string().min(1),
-  size: z.number().int().nonnegative(),
-  placeholders: z.array(z.string()),
-  unresolvedPlaceholders: z.array(z.string()),
-  status: TemplateFileStatusSchema,
-  error: z.string().optional(),
-  originalBase64: z.string(),
-  generatedBase64: z.string().optional(),
-  lastGeneratedAt: z.string().datetime().optional(),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
+	id: z.string().uuid(),
+	handbookId: z.string().min(1),
+	path: z.string().min(1),
+	name: z.string().min(1),
+	ext: TemplateFileExtSchema,
+	mimeType: z.string().min(1),
+	size: z.number().int().nonnegative(),
+	placeholders: z.array(z.string()),
+	unresolvedPlaceholders: z.array(z.string()),
+	status: TemplateFileStatusSchema,
+	error: z.string().optional(),
+	originalBase64: z.string(),
+	generatedBase64: z.string().optional(),
+	lastGeneratedAt: z.string().datetime().optional(),
+	createdAt: z.string().datetime(),
+	updatedAt: z.string().datetime(),
 });
 
 export const TemplateFileMetadataSchema = TemplateFileSchema.omit({
@@ -82,17 +82,6 @@ export const TemplatePreviewRunSchema = z.object({
   styleKey: z.string(),
 });
 
-export const TemplateCanvasLayoutSchema = z.object({
-  blockId: z.string(),
-  pageOrSlide: z.number().int().positive(),
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  h: z.number(),
-  z: z.number().int(),
-  confidence: z.number().min(0).max(1),
-});
-
 export const TemplatePreviewSourceSchema = z.enum(["auto", "original", "generated"]);
 export const TemplatePreviewResolvedSourceSchema = z.enum(["original", "generated"]);
 
@@ -102,7 +91,6 @@ export const TemplateFilePreviewSchema = z.object({
   groups: z.array(TemplatePreviewGroupSchema),
   blocks: z.array(TemplatePreviewBlockSchema),
   runs: z.array(TemplatePreviewRunSchema),
-  layout: z.array(TemplateCanvasLayoutSchema),
   previewVersion: z.string().min(1),
   unresolvedPlaceholders: z.array(z.string()),
 });
@@ -150,7 +138,6 @@ export type TemplatePreviewBlockKind = z.infer<typeof TemplatePreviewBlockKindSc
 export type TemplatePreviewGroup = z.infer<typeof TemplatePreviewGroupSchema>;
 export type TemplatePreviewBlock = z.infer<typeof TemplatePreviewBlockSchema>;
 export type TemplatePreviewRun = z.infer<typeof TemplatePreviewRunSchema>;
-export type TemplateCanvasLayout = z.infer<typeof TemplateCanvasLayoutSchema>;
 export type TemplatePreviewSource = z.infer<typeof TemplatePreviewSourceSchema>;
 export type TemplatePreviewResolvedSource = z.infer<
   typeof TemplatePreviewResolvedSourceSchema

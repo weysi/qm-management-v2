@@ -33,8 +33,6 @@ def parse_database_url(database_url: str) -> dict[str, object]:
         "HOST": parsed.hostname or "localhost",
         "PORT": str(parsed.port or 5432),
         "CONN_MAX_AGE": 60,
-        # Keep RAG tables isolated in rag schema while keeping public fallback.
-        "OPTIONS": {"options": "-c search_path=rag,public"},
     }
 
 
@@ -52,14 +50,9 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.postgres",
     "rest_framework",
-    "pgvector.django",
     "drf_spectacular",
-    "packages",
-    "assets",
-    "indexing",
-    "rag",
-    "generation",
-    "runs",
+    "clients",
+    "documents",
 ]
 
 MIDDLEWARE = [
@@ -93,7 +86,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 
-DATABASE_URL = env("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/qm_rag")
+DATABASE_URL = env("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/qm-documents")
 DATABASES = {"default": parse_database_url(DATABASE_URL)}
 
 
@@ -116,30 +109,19 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "QM RAG Backend API",
+    "TITLE": "QM Documents Backend API",
     "VERSION": "1.0.0",
     "DESCRIPTION": (
-        "RAG-powered backend for generating ISO compliance handbooks.\n\n"
+        "Document template backend for handbook-scoped uploads, placeholder extraction, rendering, and AI rewrite.\n\n"
         "## Authentication\n"
         "**No authentication required.** All endpoints are open.\n\n"
-        "## Tenant Isolation\n"
-        "Multi-tenancy is application-level via `tenant_id` parameters. "
-        "Data is isolated per tenant in PostgreSQL (`rag` schema) and on disk "
-        "(`data/tenants/<tenant_id>/`).\n\n"
-        "## Pipeline Flow\n"
-        "1. `start-package` → seeds variable keys + copies package files + indexes\n"
-        "2. `ingest` → re-index existing assets (optional, for force refresh)\n"
-        "3. `plan` → AI builds a generation plan from template placeholders\n"
-        "4. `generate` → resolves variables + fills OOXML templates → output files\n"
-        "5. `chat` → RAG Q&A over indexed documents\n"
+        "## Scope\n"
+        "All documents are scoped by `handbook_id`.\n"
     ),
     "SERVE_INCLUDE_SCHEMA": False,
     "TAGS": [
         {"name": "Health", "description": "Server health check"},
-        {"name": "Assets", "description": "File upload, listing, binary retrieval, and ZIP download"},
-        {"name": "Generation", "description": "Package initialization, ingestion, AI planning, and template generation"},
-        {"name": "RAG Chat", "description": "Retrieval-Augmented Generation chat interface"},
-        {"name": "Runs", "description": "Pipeline run tracking and event logs"},
+        {"name": "Documents", "description": "Document upload, render, rewrite, tree, and download"},
     ],
     "COMPONENT_SPLIT_REQUEST": True,
 }
@@ -147,19 +129,13 @@ SPECTACULAR_SETTINGS = {
 
 OPENAI_API_KEY = env("OPENAI_API_KEY", "")
 OPENAI_CHAT_MODEL = env("OPENAI_CHAT_MODEL", "gpt-4o-mini")
-OPENAI_ROUTER_MODEL = env("OPENAI_ROUTER_MODEL", "gpt-4o-mini")
-OPENAI_EMBED_MODEL = env("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+OPENAI_REWRITE_MODEL = env("OPENAI_REWRITE_MODEL", "gpt-4o-mini")
+AI_REWRITE_TIMEOUT_SECONDS = int(env("AI_REWRITE_TIMEOUT_SECONDS", "60"))
+AI_REWRITE_RETRIES = int(env("AI_REWRITE_RETRIES", "2"))
 NEXTJS_INTERNAL_API_URL = env("NEXTJS_INTERNAL_API_URL", "http://localhost:3000")
 
-RAG_DATA_ROOT = Path(env("RAG_DATA_ROOT", str(PROJECT_ROOT / "data"))).resolve()
-RAG_PACKAGE_ROOT = RAG_DATA_ROOT / "packages"
-RAG_TENANT_ROOT = RAG_DATA_ROOT / "tenants"
-
-CELERY_BROKER_URL = env("CELERY_BROKER_URL", "redis://localhost:6379/0")
-CELERY_RESULT_BACKEND = env("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
-CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = 60 * 30
-CELERY_TASK_SOFT_TIME_LIMIT = 60 * 28
+DATA_ROOT = Path(env("DATA_ROOT", str(PROJECT_ROOT / "data"))).resolve()
+DOCUMENTS_DATA_ROOT = DATA_ROOT / "documents"
 
 LOGGING = {
     "version": 1,

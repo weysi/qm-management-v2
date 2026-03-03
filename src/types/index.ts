@@ -29,7 +29,6 @@ export type {
   TemplatePreviewBlockKind,
   TemplatePreviewBlock,
   TemplatePreviewRun,
-  TemplateCanvasLayout,
   TemplatePreviewGroup,
   TemplatePreviewSource,
   TemplatePreviewResolvedSource,
@@ -38,6 +37,15 @@ export type {
   SaveTemplatePreviewRequest,
   RewriteTemplateFilesRequest,
 } from "@/lib/schemas/template-file.schema";
+
+export type {
+  Document,
+  DocumentVariable,
+  DocumentVersion,
+  WorkspaceAsset,
+  FileTreeNode,
+  ApiValidationError,
+} from "@/lib/schemas/document.schema";
 
 export type {
   CompanyFunctionType,

@@ -16,17 +16,17 @@ async function fetchManual(id: string): Promise<Manual> {
 }
 
 async function updateManualSection(
-  manualId: string,
-  sectionId: string,
-  content: string
+	handbookId: string,
+	sectionId: string,
+	content: string,
 ): Promise<Manual> {
-  const res = await fetch(`/api/manuals/${manualId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sectionId, content }),
-  });
-  if (!res.ok) throw new Error("Failed to update section");
-  return res.json();
+	const res = await fetch(`/api/manuals/${handbookId}`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ sectionId, content }),
+	});
+	if (!res.ok) throw new Error('Failed to update section');
+	return res.json();
 }
 
 async function createManual(clientId: string): Promise<Manual> {
@@ -59,12 +59,17 @@ export function useCreateManual() {
   });
 }
 
-export function useUpdateManualSection(manualId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ sectionId, content }: { sectionId: string; content: string }) =>
-      updateManualSection(manualId, sectionId, content),
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: [...QUERY_KEY, manualId] }),
-  });
+export function useUpdateManualSection(handbookId: string) {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: ({
+			sectionId,
+			content,
+		}: {
+			sectionId: string;
+			content: string;
+		}) => updateManualSection(handbookId, sectionId, content),
+		onSuccess: () =>
+			qc.invalidateQueries({ queryKey: [...QUERY_KEY, handbookId] }),
+	});
 }

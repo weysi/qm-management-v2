@@ -1,14 +1,14 @@
 import type { ReferenceFile } from "@/lib/schemas";
 
 export const mockReferenceFiles: ReferenceFile[] = [
-  {
-    id: "rf-0001",
-    code: "FB 4.1.0 / 4.2.0",
-    title: "Kontext, Erfordernisse und Erwartungen",
-    linkedChapters: ["4.1", "4.2"],
-    manualId: "manual-0001",
-    generatedAt: "2025-01-10T08:00:00.000Z",
-    content: `# FB 4.1.0 / 4.2.0 – Kontext, Erfordernisse und Erwartungen
+	{
+		id: 'rf-0001',
+		code: 'FB 4.1.0 / 4.2.0',
+		title: 'Kontext, Erfordernisse und Erwartungen',
+		linkedChapters: ['4.1', '4.2'],
+		handbookId: 'manual-0001',
+		generatedAt: '2025-01-10T08:00:00.000Z',
+		content: `# FB 4.1.0 / 4.2.0 – Kontext, Erfordernisse und Erwartungen
 
 ## Externe Themen
 | Nr. | Thema | Relevanz | Maßnahme |
@@ -29,15 +29,15 @@ export const mockReferenceFiles: ReferenceFile[] = [
 | Kunden | Qualität, Liefertreue | Quartalsweise |
 | Mitarbeiter | Faire Vergütung, Entwicklung | Jährlich |
 | Lieferanten | Faire Zusammenarbeit | Jährlich |`,
-  },
-  {
-    id: "rf-0002",
-    code: "FB 4.4.0",
-    title: "Prozesslandschaft / Turtle-Diagramme",
-    linkedChapters: ["4.4"],
-    manualId: "manual-0001",
-    generatedAt: "2025-01-10T08:00:00.000Z",
-    content: `# FB 4.4.0 – Prozesslandschaft
+	},
+	{
+		id: 'rf-0002',
+		code: 'FB 4.4.0',
+		title: 'Prozesslandschaft / Turtle-Diagramme',
+		linkedChapters: ['4.4'],
+		handbookId: 'manual-0001',
+		generatedAt: '2025-01-10T08:00:00.000Z',
+		content: `# FB 4.4.0 – Prozesslandschaft
 
 ## Führungsprozesse
 - Strategieentwicklung
@@ -55,15 +55,15 @@ export const mockReferenceFiles: ReferenceFile[] = [
 - Beschaffung
 - IT / Infrastruktur
 - Dokumentenmanagement`,
-  },
-  {
-    id: "rf-0003",
-    code: "FB 6.1.0",
-    title: "Risiko- und Chancenmatrix",
-    linkedChapters: ["6.1"],
-    manualId: "manual-0001",
-    generatedAt: "2025-01-10T08:00:00.000Z",
-    content: `# FB 6.1.0 – Risiko- und Chancenmatrix
+	},
+	{
+		id: 'rf-0003',
+		code: 'FB 6.1.0',
+		title: 'Risiko- und Chancenmatrix',
+		linkedChapters: ['6.1'],
+		handbookId: 'manual-0001',
+		generatedAt: '2025-01-10T08:00:00.000Z',
+		content: `# FB 6.1.0 – Risiko- und Chancenmatrix
 
 | Nr. | Beschreibung | Eintrittswahrscheinlichkeit | Auswirkung | Risikostufe | Maßnahme | Verantwortlich |
 |-----|--------------|---------------------------|------------|-------------|----------|----------------|
@@ -72,15 +72,15 @@ export const mockReferenceFiles: ReferenceFile[] = [
 | R3 | Mitarbeiterfluktuation | Mittel | Mittel | Mittel | Mitarbeiterbindung | HR |
 | C1 | Neue Märkte | Mittel | Hoch | Hoch | Marktanalyse | GF |
 | C2 | Digitalisierung | Hoch | Hoch | Hoch | Investitionsplanung | IT |`,
-  },
-  {
-    id: "rf-0004",
-    code: "FB 9.2.0",
-    title: "Auditprogramm / Auditbericht",
-    linkedChapters: ["9.2"],
-    manualId: "manual-0001",
-    generatedAt: "2025-01-10T08:00:00.000Z",
-    content: `# FB 9.2.0 – Auditprogramm
+	},
+	{
+		id: 'rf-0004',
+		code: 'FB 9.2.0',
+		title: 'Auditprogramm / Auditbericht',
+		linkedChapters: ['9.2'],
+		handbookId: 'manual-0001',
+		generatedAt: '2025-01-10T08:00:00.000Z',
+		content: `# FB 9.2.0 – Auditprogramm
 
 ## Jahresauditplan
 | Monat | Bereich | Auditor | Norm-Kapitel |
@@ -97,15 +97,15 @@ export const mockReferenceFiles: ReferenceFile[] = [
 - Feststellungen:
 - Abweichungen:
 - Korrekturmaßnahmen:`,
-  },
-  {
-    id: "rf-0005",
-    code: "FB 10.2.0",
-    title: "Korrekturmaßnahmenblatt (CAPA)",
-    linkedChapters: ["10.2"],
-    manualId: "manual-0001",
-    generatedAt: "2025-01-10T08:00:00.000Z",
-    content: `# FB 10.2.0 – Korrekturmaßnahmenblatt (CAPA)
+	},
+	{
+		id: 'rf-0005',
+		code: 'FB 10.2.0',
+		title: 'Korrekturmaßnahmenblatt (CAPA)',
+		linkedChapters: ['10.2'],
+		handbookId: 'manual-0001',
+		generatedAt: '2025-01-10T08:00:00.000Z',
+		content: `# FB 10.2.0 – Korrekturmaßnahmenblatt (CAPA)
 
 | Feld | Inhalt |
 |------|--------|
@@ -119,5 +119,5 @@ export const mockReferenceFiles: ReferenceFile[] = [
 | Zieldatum | |
 | Wirksamkeitsprüfung | |
 | Status | Offen / In Bearbeitung / Abgeschlossen |`,
-  },
+	},
 ];

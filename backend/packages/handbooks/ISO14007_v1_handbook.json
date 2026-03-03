@@ -5,8 +5,7 @@
   "draft_groups": [
     {
       "name": "environmental_scope",
-      "tokens": ["ENVIRONMENTAL_SCOPE", "CARBON_BOUNDARY"],
-      "retrieval_role": "REFERENCE"
+      "tokens": ["ENVIRONMENTAL_SCOPE", "CARBON_BOUNDARY"]
     }
   ],
   "replacement_mode": "SIMPLE_TEXT"

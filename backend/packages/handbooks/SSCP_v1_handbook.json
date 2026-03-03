@@ -5,8 +5,7 @@
   "draft_groups": [
     {
       "name": "security_policy",
-      "tokens": ["SECURITY_SCOPE", "DATA_CLASSIFICATION_POLICY"],
-      "retrieval_role": "REFERENCE"
+      "tokens": ["SECURITY_SCOPE", "DATA_CLASSIFICATION_POLICY"]
     }
 
   ],

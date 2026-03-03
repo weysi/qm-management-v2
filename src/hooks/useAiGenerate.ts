@@ -14,11 +14,11 @@ async function generateSection(payload: GenerateRequest): Promise<GenerateRespon
   return res.json();
 }
 
-export function useAiGenerate(manualId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: generateSection,
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ["manuals", manualId] }),
-  });
+export function useAiGenerate(handbookId: string) {
+	const qc = useQueryClient();
+	return useMutation({
+		mutationFn: generateSection,
+		onSuccess: () =>
+			qc.invalidateQueries({ queryKey: ['manuals', handbookId] }),
+	});
 }

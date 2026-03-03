@@ -14,6 +14,10 @@ export const ClientSchema = z.object({
 	products: z.string().min(1, 'Produktbeschreibung ist erforderlich'),
 	services: z.string().min(1, 'Dienstleistungsbeschreibung ist erforderlich'),
 	industry: z.string().min(1, 'Branche ist erforderlich'),
+	// Asset fields — stored as base64 data URLs locally.
+	// TODO: Replace base64 storage with S3 presigned URL upload/download.
+	logoUrl: z.string().optional(),
+	signatureUrl: z.string().optional(),
 	createdAt: z.string().datetime(),
 	updatedAt: z.string().datetime(),
 });

@@ -3,30 +3,51 @@
   "package_version": "v1",
   "variables": [
     {
+      "name": "company.name",
       "token": "COMPANY_NAME",
+      "aliases": ["COMPANY_NAME"],
       "type": "string",
       "required": true,
+      "source": "user_input",
       "description": "Company legal name",
+      "constraints": { "min_length": 1 },
+      "enum_options": [],
       "examples": [],
       "default_value": null,
+      "redaction": false,
+      "forbidden": false,
       "generation_policy": "DETERMINISTIC"
     },
     {
+      "name": "handbook.security_scope",
       "token": "SECURITY_SCOPE",
+      "aliases": ["SECURITY_SCOPE"],
       "type": "rich_text",
       "required": true,
+      "source": "ai_generated",
       "description": "Security scope statement",
+      "constraints": { "min_length": 1 },
+      "enum_options": [],
       "examples": [],
       "default_value": null,
+      "redaction": false,
+      "forbidden": false,
       "generation_policy": "AI_DRAFT"
     },
     {
+      "name": "handbook.data_classification_policy",
       "token": "DATA_CLASSIFICATION_POLICY",
+      "aliases": ["DATA_CLASSIFICATION_POLICY"],
       "type": "rich_text",
       "required": true,
+      "source": "ai_generated",
       "description": "Data classification policy text",
+      "constraints": { "min_length": 1 },
+      "enum_options": [],
       "examples": [],
       "default_value": null,
+      "redaction": false,
+      "forbidden": false,
       "generation_policy": "AI_DRAFT"
     }
   ]

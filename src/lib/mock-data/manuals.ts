@@ -1,11 +1,11 @@
 import { isoManualSections } from "./manual-template";
 import type { Manual } from "@/lib/schemas";
 
-function buildSections(manualId: string) {
-  return isoManualSections.map((s, i) => ({
-    ...s,
-    id: `${manualId}-section-${i}`,
-  }));
+function buildSections(handbookId: string) {
+	return isoManualSections.map((s, i) => ({
+		...s,
+		id: `${handbookId}-section-${i}`,
+	}));
 }
 
 export const mockManuals: Manual[] = [
