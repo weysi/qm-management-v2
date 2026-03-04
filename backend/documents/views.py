@@ -24,6 +24,7 @@ from .services.asset_service import (
     AssetValidationError,
     get_active_asset,
     list_assets,
+    save_signature_data_url,
     soft_delete_asset,
     upload_asset,
 )
@@ -34,10 +35,12 @@ from .services.handbook_service import (
     HandbookServiceError,
     ai_fill_single_placeholder,
     build_handbook_tree,
+    create_snapshot_from_current_state,
     create_handbook,
     delete_snapshot,
     export_handbook,
     get_file_placeholders,
+    get_handbook_completion_summary,
     list_snapshots,
     refresh_handbook_completion,
     resolve_snapshot_export_path,
@@ -335,7 +338,61 @@ def handbook_assets_view(request, handbook_id: str):
         asset_type=asset_type,
         asset_id=str(asset.id),
     )
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is not None:
+        refresh_handbook_completion(handbook=handbook)
 
+    return Response({"asset": WorkspaceAssetSerializer(asset).data}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST", "DELETE"])
+def handbook_signature_asset_view(request, handbook_id: str):
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "DELETE":
+        try:
+            asset = soft_delete_asset(handbook_id=handbook_id, asset_type="signature")
+        except AssetValidationError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        if asset is None:
+            return Response({"error": "Asset not found"}, status=status.HTTP_404_NOT_FOUND)
+        _dev_log(
+            "ASSET_DELETE",
+            handbook_id=handbook_id,
+            asset_type="signature",
+            asset_id=str(asset.id),
+        )
+        refresh_handbook_completion(handbook=handbook)
+        return Response({"status": "deleted", "asset_type": "signature"}, status=status.HTTP_200_OK)
+
+    uploaded = request.FILES.get("file")
+    data_url_raw = request.data.get("data_url")
+    filename = str(request.data.get("filename", "signature-canvas.png")).strip() or "signature-canvas.png"
+
+    try:
+        if isinstance(data_url_raw, str) and data_url_raw.strip():
+            asset = save_signature_data_url(
+                handbook_id=handbook_id,
+                data_url=data_url_raw,
+                filename=filename,
+            )
+        elif uploaded is not None:
+            asset = upload_asset(
+                handbook_id=handbook_id,
+                asset_type="signature",
+                uploaded=uploaded,
+            )
+        else:
+            return Response(
+                {"error": "data_url or file is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    except AssetValidationError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    refresh_handbook_completion(handbook=handbook)
     return Response({"asset": WorkspaceAssetSerializer(asset).data}, status=status.HTTP_201_CREATED)
 
 
@@ -353,6 +410,9 @@ def handbook_asset_detail_view(request, handbook_id: str, asset_type: str):
         asset_type=asset_type,
         asset_id=str(asset.id),
     )
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is not None:
+        refresh_handbook_completion(handbook=handbook)
     return Response({"status": "deleted", "asset_type": asset_type}, status=status.HTTP_200_OK)
 
 
@@ -379,6 +439,9 @@ def handbook_asset_download_view(request, handbook_id: str, asset_type: str):
     response = FileResponse(path.open("rb"), content_type=asset.mime_type or "application/octet-stream")
     response["Content-Disposition"] = f'attachment; filename="{path.name}"'
     response["Content-Length"] = str(path.stat().st_size)
+    response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response["Pragma"] = "no-cache"
+    response["Expires"] = "0"
     return response
 
 
@@ -439,7 +502,6 @@ def handbook_upload_zip_view(request, handbook_id: str):
     except BadZipFile:
         return Response({"error": "Invalid ZIP archive"}, status=status.HTTP_400_BAD_REQUEST)
 
-    refresh_handbook_completion(handbook=handbook)
     files_payload = HandbookFileSerializer(result.files, many=True).data
     return Response(
         {
@@ -463,7 +525,6 @@ def handbook_tree_view(request, handbook_id: str):
     handbook = _get_handbook_or_404(handbook_id)
     if handbook is None:
         return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
-    refresh_handbook_completion(handbook=handbook)
     tree = build_handbook_tree(handbook=handbook)
     return Response({"tree": tree}, status=status.HTTP_200_OK)
 
@@ -479,7 +540,6 @@ def handbook_file_placeholders_view(request, handbook_id: str, file_id: str):
     if handbook_file is None:
         return Response({"error": "Handbook file not found"}, status=status.HTTP_404_NOT_FOUND)
 
-    refresh_handbook_completion(handbook=handbook)
     payload = get_file_placeholders(handbook=handbook, handbook_file=handbook_file)
     return Response(
         {
@@ -523,13 +583,14 @@ def handbook_save_placeholders_view(request, handbook_id: str):
     except HandbookServiceError as exc:
         return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-    snapshot = payload["snapshot"]
+    snapshot = payload.get("snapshot")
     return Response(
         {
             "file": HandbookFileSerializer(payload["file"]).data,
             "placeholders": payload["placeholders"],
             "completion": payload["completion"],
-            "snapshot": VersionSnapshotSerializer(snapshot).data,
+            "snapshot": VersionSnapshotSerializer(snapshot).data if snapshot is not None else None,
+            "handbook_completion": payload.get("handbook_completion"),
             "handbook": HandbookSerializer(handbook).data,
         },
         status=status.HTTP_200_OK,
@@ -582,15 +643,43 @@ def handbook_placeholder_ai_fill_view(request, handbook_id: str):
     return Response(payload, status=status.HTTP_200_OK)
 
 
-@api_view(["GET"])
+@api_view(["GET", "POST"])
 def handbook_versions_view(request, handbook_id: str):
-    del request
     handbook = _get_handbook_or_404(handbook_id)
     if handbook is None:
         return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
 
+    if request.method == "POST":
+        created_by = str(request.data.get("created_by", "user")).strip() or "user"
+        reason = str(request.data.get("reason", "manual_completion")).strip() or "manual_completion"
+        try:
+            snapshot, created = create_snapshot_from_current_state(
+                handbook=handbook,
+                created_by=created_by,
+                reason=reason,
+            )
+        except HandbookServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {
+                "created": created,
+                "snapshot": VersionSnapshotSerializer(snapshot).data,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
     versions = list_snapshots(handbook=handbook)
     return Response({"versions": VersionSnapshotSerializer(versions, many=True).data}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+def handbook_completion_view(request, handbook_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+    summary = get_handbook_completion_summary(handbook=handbook)
+    return Response(summary, status=status.HTTP_200_OK)
 
 
 @api_view(["DELETE"])

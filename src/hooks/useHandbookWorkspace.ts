@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import {
+  HandbookCompletionSchema,
   HandbookFileSchema,
   HandbookPlaceholderSchema,
   HandbookSnapshotSchema,
@@ -10,6 +11,7 @@ import {
 const TREE_KEY = 'handbook-tree';
 const PLACEHOLDERS_KEY = 'handbook-file-placeholders';
 const VERSIONS_KEY = 'handbook-versions';
+const COMPLETION_KEY = 'handbook-completion';
 
 const CompletionSchema = z.object({
   total: z.number().int().nonnegative(),
@@ -48,7 +50,8 @@ const SavePlaceholdersResponseSchema = z.object({
   file: HandbookFileSchema,
   placeholders: z.array(HandbookPlaceholderSchema),
   completion: CompletionSchema,
-  snapshot: HandbookSnapshotSchema,
+  snapshot: HandbookSnapshotSchema.nullable().optional(),
+  handbook_completion: HandbookCompletionSchema.optional(),
   handbook: z.record(z.string(), z.unknown()),
 });
 
@@ -63,6 +66,13 @@ const AiFillResponseSchema = z.object({
 
 const VersionsResponseSchema = z.object({
   versions: z.array(HandbookSnapshotSchema),
+});
+
+const CompletionResponseSchema = HandbookCompletionSchema;
+
+const CreateVersionResponseSchema = z.object({
+  created: z.boolean(),
+  snapshot: HandbookSnapshotSchema,
 });
 
 async function parseJsonOrThrow<T>(res: Response, schema: z.ZodType<T>): Promise<T> {
@@ -96,10 +106,12 @@ export function useUploadHandbookZip(handbookId: string) {
       });
       return parseJsonOrThrow(res, UploadZipResponseSchema);
     },
-    onSuccess: () => {
+    onSuccess: result => {
+      qc.setQueryData([TREE_KEY, handbookId], result.tree);
       qc.invalidateQueries({ queryKey: [TREE_KEY, handbookId] });
       qc.invalidateQueries({ queryKey: ['handbooks'] });
       qc.invalidateQueries({ queryKey: [VERSIONS_KEY, handbookId] });
+      qc.invalidateQueries({ queryKey: [COMPLETION_KEY, handbookId] });
       qc.invalidateQueries({ queryKey: ['workspace-assets', handbookId] });
       qc.invalidateQueries({ queryKey: [PLACEHOLDERS_KEY, handbookId] });
     },
@@ -142,9 +154,21 @@ export function useSaveFilePlaceholders(handbookId: string) {
       qc.invalidateQueries({ queryKey: [PLACEHOLDERS_KEY, handbookId, variables.fileId] });
       qc.invalidateQueries({ queryKey: [TREE_KEY, handbookId] });
       qc.invalidateQueries({ queryKey: [VERSIONS_KEY, handbookId] });
+      qc.invalidateQueries({ queryKey: [COMPLETION_KEY, handbookId] });
       qc.invalidateQueries({ queryKey: ['handbooks', handbookId] });
       qc.invalidateQueries({ queryKey: ['handbooks'] });
     },
+  });
+}
+
+export function useHandbookCompletion(handbookId: string) {
+  return useQuery({
+    queryKey: [COMPLETION_KEY, handbookId],
+    queryFn: async () => {
+      const res = await fetch(`/api/handbooks/${encodeURIComponent(handbookId)}/completion`);
+      return parseJsonOrThrow(res, CompletionResponseSchema);
+    },
+    enabled: Boolean(handbookId),
   });
 }
 
@@ -204,6 +228,28 @@ export function useDeleteHandbookVersion(handbookId: string) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [VERSIONS_KEY, handbookId] });
+    },
+  });
+}
+
+export function useCreateHandbookVersion(handbookId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload?: { createdBy?: string; reason?: string }) => {
+      const res = await fetch(`/api/handbooks/${encodeURIComponent(handbookId)}/versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          created_by: payload?.createdBy ?? 'user',
+          reason: payload?.reason ?? 'manual_completion',
+        }),
+      });
+      return parseJsonOrThrow(res, CreateVersionResponseSchema);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [VERSIONS_KEY, handbookId] });
+      qc.invalidateQueries({ queryKey: ['handbooks'] });
+      qc.invalidateQueries({ queryKey: ['handbooks', handbookId] });
     },
   });
 }

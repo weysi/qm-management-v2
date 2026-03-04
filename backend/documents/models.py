@@ -306,3 +306,23 @@ class VersionSnapshot(models.Model):
         indexes = [
             models.Index(fields=["handbook", "-version_number"], name="docs_vs_hb_ver_idx"),
         ]
+
+
+class PlaceholderParseCache(models.Model):
+    checksum = models.CharField(max_length=64)
+    file_type = models.CharField(max_length=8, choices=HandbookFile.FileType.choices)
+    placeholders = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "documents_placeholder_parse_cache"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["checksum", "file_type"],
+                name="documents_placeholder_cache_unique_checksum_type",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["file_type", "-updated_at"], name="docs_ppc_type_updated_idx"),
+        ]

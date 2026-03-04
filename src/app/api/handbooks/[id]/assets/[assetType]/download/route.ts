@@ -23,9 +23,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
   const contentType = res.headers.get('content-type');
   const contentDisposition = res.headers.get('content-disposition');
   const contentLength = res.headers.get('content-length');
+  const cacheControl = res.headers.get('cache-control');
+  const pragma = res.headers.get('pragma');
+  const expires = res.headers.get('expires');
   if (contentType) headers.set('content-type', contentType);
   if (contentDisposition) headers.set('content-disposition', contentDisposition);
   if (contentLength) headers.set('content-length', contentLength);
+  if (cacheControl) headers.set('cache-control', cacheControl);
+  if (pragma) headers.set('pragma', pragma);
+  if (expires) headers.set('expires', expires);
 
   return new NextResponse(res.body, {
     status: res.status,

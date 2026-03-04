@@ -3,27 +3,37 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 from io import BytesIO
+import json
 import logging
 import mimetypes
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+from typing import Callable
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 from clients.models import Client
 from documents.models import (
     Handbook,
     HandbookFile,
     Placeholder,
+    PlaceholderParseCache,
     PlaceholderValue,
     VersionSnapshot,
 )
 
 from .asset_resolver import StorageAssetResolver
-from .asset_service import get_active_asset
+from .asset_service import (
+    AssetValidationError,
+    decode_image_data_url,
+    extension_for_mime,
+    get_active_asset,
+    save_asset_bytes,
+)
 from .asset_metadata import detect_image_dimensions
 from .inject_docx import inject_docx_assets
 from .inject_pptx import inject_pptx_assets
@@ -58,6 +68,34 @@ OOXML_PART_PREFIXES = {
     ".docx": ("word/",),
     ".pptx": ("ppt/",),
     ".xlsx": ("xl/",),
+}
+
+CLIENT_TEXT_VALUE_GETTERS: dict[str, Callable[[Client], str]] = {
+    "client.name": lambda customer: customer.name,
+    "company.name": lambda customer: customer.name,
+    "company_name": lambda customer: customer.name,
+    "client.address": lambda customer: customer.address,
+    "company.address": lambda customer: customer.address,
+    "company_address": lambda customer: customer.address,
+    "client.zip_city": lambda customer: customer.zip_city,
+    "client.zipcity": lambda customer: customer.zip_city,
+    "company.zip_city": lambda customer: customer.zip_city,
+    "company.zipcity": lambda customer: customer.zip_city,
+    "company_zip_city": lambda customer: customer.zip_city,
+    "people.ceo": lambda customer: customer.ceo,
+    "ceo_name": lambda customer: customer.ceo,
+    "gf_name": lambda customer: customer.ceo,
+    "people.qm_manager": lambda customer: customer.qm_manager,
+    "people.qmmanager": lambda customer: customer.qm_manager,
+    "qm_manager_name": lambda customer: customer.qm_manager,
+    "employee_count": lambda customer: str(customer.employee_count),
+    "company.employee_count": lambda customer: str(customer.employee_count),
+    "products": lambda customer: customer.products,
+    "company.products": lambda customer: customer.products,
+    "services": lambda customer: customer.services,
+    "company.services": lambda customer: customer.services,
+    "industry": lambda customer: customer.industry,
+    "company.industry": lambda customer: customer.industry,
 }
 
 
@@ -292,43 +330,250 @@ def _resolved_keys(handbook: Handbook) -> set[str]:
     return _resolved_text_keys(handbook) | _resolved_asset_keys(handbook)
 
 
-def _update_file_completion(handbook: Handbook, handbook_file: HandbookFile) -> None:
+def _update_file_completion(
+    handbook: Handbook,
+    handbook_file: HandbookFile,
+    *,
+    resolved_keys: set[str] | None = None,
+) -> None:
     placeholders = list(Placeholder.objects.filter(handbook_file=handbook_file).only("key"))
-    resolved = _resolved_keys(handbook)
+    resolved = resolved_keys if resolved_keys is not None else _resolved_keys(handbook)
     total = len(placeholders)
     resolved_count = sum(1 for item in placeholders if canonicalize_placeholder_key(item.key) in resolved)
+
+    if (
+        handbook_file.placeholder_total == total
+        and handbook_file.placeholder_resolved == resolved_count
+    ):
+        return
 
     handbook_file.placeholder_total = total
     handbook_file.placeholder_resolved = resolved_count
     handbook_file.save(update_fields=["placeholder_total", "placeholder_resolved", "updated_at"])
 
 
-def _update_handbook_status(handbook: Handbook) -> None:
+def _update_handbook_status(handbook: Handbook, *, resolved_keys: set[str] | None = None) -> None:
     files_count = HandbookFile.objects.filter(handbook=handbook).count()
     if files_count == 0:
-        handbook.status = Handbook.Status.DRAFT
-        handbook.save(update_fields=["status", "updated_at"])
+        if handbook.status != Handbook.Status.DRAFT:
+            handbook.status = Handbook.Status.DRAFT
+            handbook.save(update_fields=["status", "updated_at"])
         return
 
-    resolved = _resolved_keys(handbook)
+    resolved = resolved_keys if resolved_keys is not None else _resolved_keys(handbook)
     required = list(
         Placeholder.objects.filter(handbook_file__handbook=handbook, required=True).only("key")
     )
     required_total = len(required)
     required_resolved = sum(1 for item in required if canonicalize_placeholder_key(item.key) in resolved)
 
-    handbook.status = (
+    current = handbook.status
+    next_status = (
         Handbook.Status.READY
         if required_total == required_resolved
         else Handbook.Status.IN_PROGRESS
     )
-    handbook.save(update_fields=["status", "updated_at"])
+    if next_status != current:
+        handbook.status = next_status
+        handbook.save(update_fields=["status", "updated_at"])
 
 
 def refresh_handbook_completion(*, handbook: Handbook) -> None:
+    resolved = _resolved_keys(handbook)
     for handbook_file in HandbookFile.objects.filter(handbook=handbook).order_by("path_in_handbook"):
-        _update_file_completion(handbook, handbook_file)
-    _update_handbook_status(handbook)
+        _update_file_completion(handbook, handbook_file, resolved_keys=resolved)
+    _update_handbook_status(handbook, resolved_keys=resolved)
+
+
+def _stable_sha256(value: str) -> str:
+    if value == "":
+        return ""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _build_completion_state(
+    handbook: Handbook,
+) -> tuple[dict[str, object], str]:
+    required_placeholders = list(
+        Placeholder.objects.filter(handbook_file__handbook=handbook, required=True)
+        .select_related("handbook_file")
+        .order_by("handbook_file__path_in_handbook", "key")
+    )
+    value_map = {
+        canonicalize_placeholder_key(item.key): item
+        for item in PlaceholderValue.objects.filter(handbook=handbook)
+    }
+    active_assets = {
+        CANONICAL_ASSET_LOGO: get_active_asset(handbook_id=str(handbook.id), asset_type="logo"),
+        CANONICAL_ASSET_SIGNATURE: get_active_asset(handbook_id=str(handbook.id), asset_type="signature"),
+    }
+
+    files_completion: dict[str, dict[str, object]] = {}
+    placeholder_fingerprints: list[dict[str, object]] = []
+
+    required_total = 0
+    required_resolved = 0
+
+    for placeholder in required_placeholders:
+        required_total += 1
+        file_id = str(placeholder.handbook_file_id)
+        file_state = files_completion.get(file_id)
+        if file_state is None:
+            file_state = {
+                "file_id": file_id,
+                "path": placeholder.handbook_file.path_in_handbook,
+                "required_total": 0,
+                "required_resolved": 0,
+            }
+            files_completion[file_id] = file_state
+        file_state["required_total"] = int(file_state["required_total"]) + 1
+
+        key = canonicalize_placeholder_key(placeholder.key)
+        value_hash = ""
+        asset_id: str | None = None
+        is_resolved = False
+
+        if placeholder.kind == Placeholder.Kind.ASSET:
+            asset = active_assets.get(key)
+            if asset is not None:
+                is_resolved = True
+                value_hash = asset.sha256 or str(asset.id)
+                asset_id = str(asset.id)
+        else:
+            value = value_map.get(key)
+            text = ""
+            if value is not None and isinstance(value.value_text, str):
+                text = value.value_text.strip()
+            if text:
+                is_resolved = True
+                value_hash = _stable_sha256(text)
+
+        if is_resolved:
+            required_resolved += 1
+            file_state["required_resolved"] = int(file_state["required_resolved"]) + 1
+
+        placeholder_fingerprints.append(
+            {
+                "file_id": file_id,
+                "key": key,
+                "kind": placeholder.kind,
+                "required": True,
+                "resolved": is_resolved,
+                "value_hash": value_hash,
+                "asset_id": asset_id,
+            }
+        )
+
+    files = list(HandbookFile.objects.filter(handbook=handbook).order_by("path_in_handbook"))
+    file_checksums = [
+        {
+            "file_id": str(item.id),
+            "path": item.path_in_handbook,
+            "checksum": item.checksum,
+            "file_type": item.file_type,
+        }
+        for item in files
+    ]
+
+    completion_files: list[dict[str, object]] = []
+    for item in files:
+        base = files_completion.get(str(item.id))
+        if base is None:
+            completion_files.append(
+                {
+                    "file_id": str(item.id),
+                    "path": item.path_in_handbook,
+                    "required_total": 0,
+                    "required_resolved": 0,
+                    "is_complete_required": True,
+                }
+            )
+            continue
+        required_file_total = int(base["required_total"])
+        required_file_resolved = int(base["required_resolved"])
+        completion_files.append(
+            {
+                "file_id": str(item.id),
+                "path": item.path_in_handbook,
+                "required_total": required_file_total,
+                "required_resolved": required_file_resolved,
+                "is_complete_required": required_file_total == required_file_resolved,
+            }
+        )
+
+    hash_payload = {
+        "required_total": required_total,
+        "required_resolved": required_resolved,
+        "placeholders": [
+            {
+                "file_id": item["file_id"],
+                "key": item["key"],
+                "kind": item["kind"],
+                "value_hash": item["value_hash"],
+                "asset_id": item["asset_id"],
+            }
+            for item in placeholder_fingerprints
+        ],
+        "files": [
+            {"path": item["path"], "checksum": item["checksum"]}
+            for item in file_checksums
+        ],
+    }
+    digest = hashlib.sha256(
+        json.dumps(hash_payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+    summary = {
+        "handbook_id": str(handbook.id),
+        "required_total": required_total,
+        "required_resolved": required_resolved,
+        "is_complete_required": required_total == required_resolved,
+        "files": completion_files,
+        "placeholders": placeholder_fingerprints,
+        "file_checksums": file_checksums,
+        "completion_hash": digest,
+    }
+    return summary, digest
+
+
+def get_handbook_completion_summary(*, handbook: Handbook) -> dict[str, object]:
+    summary, _digest = _build_completion_state(handbook)
+    return summary
+
+
+@transaction.atomic
+def create_snapshot_from_current_state(
+    *,
+    handbook: Handbook,
+    created_by: str = "user",
+    reason: str = "manual_completion",
+) -> tuple[VersionSnapshot, bool]:
+    Handbook.objects.select_for_update().filter(id=handbook.id).exists()
+    completion, digest = _build_completion_state(handbook)
+    if not bool(completion["is_complete_required"]):
+        raise HandbookServiceError("Cannot create version: required placeholders are not complete")
+
+    latest = handbook.snapshots.order_by("-version_number").first()
+    latest_manifest = latest.manifest if latest and isinstance(latest.manifest, dict) else {}
+    if latest and latest_manifest.get("completion_hash") == digest:
+        return latest, False
+
+    snapshot = _create_snapshot(
+        handbook,
+        reason=reason,
+        extra_manifest={
+            "created_by": created_by,
+            "created_at": timezone.now().isoformat(),
+            "completion_hash": digest,
+            "required_total": completion["required_total"],
+            "required_resolved": completion["required_resolved"],
+            "is_complete_required": completion["is_complete_required"],
+            "completion_files": completion["files"],
+            "required_placeholders": completion["placeholders"],
+            "file_checksums": completion["file_checksums"],
+        },
+    )
+    return snapshot, True
 
 
 def _create_snapshot(
@@ -462,6 +707,152 @@ def create_handbook(*, customer_id: str, handbook_type: str) -> Handbook:
     return handbook
 
 
+def _build_client_text_values(customer: Client) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for alias, getter in CLIENT_TEXT_VALUE_GETTERS.items():
+        try:
+            raw = getter(customer)
+        except Exception:  # noqa: BLE001
+            continue
+        if raw is None:
+            continue
+        cleaned = str(raw).strip()
+        if not cleaned:
+            continue
+        values[canonicalize_placeholder_key(alias)] = cleaned
+    return values
+
+
+def _placeholder_keys_for_handbook(handbook: Handbook) -> set[str]:
+    return {
+        canonicalize_placeholder_key(item)
+        for item in Placeholder.objects.filter(handbook_file__handbook=handbook).values_list("key", flat=True)
+    }
+
+
+def _existing_placeholder_values(handbook: Handbook) -> dict[str, PlaceholderValue]:
+    return {
+        canonicalize_placeholder_key(item.key): item
+        for item in PlaceholderValue.objects.filter(handbook=handbook)
+    }
+
+
+def _import_asset_from_client_data_url(
+    *,
+    handbook: Handbook,
+    asset_type: str,
+    data_url: str,
+    decode_cache: dict[str, tuple[bytes, str, str]],
+):
+    if asset_type in decode_cache:
+        payload, mime_type, ext = decode_cache[asset_type]
+    else:
+        max_inline_bytes = int(getattr(settings, "CLIENT_ASSET_MAX_INLINE_BYTES", 2 * 1024 * 1024))
+        payload, mime_type = decode_image_data_url(
+            data_url=data_url,
+            max_bytes=max_inline_bytes,
+        )
+        ext = extension_for_mime(mime_type)
+        decode_cache[asset_type] = (payload, mime_type, ext)
+
+    filename = f"client-{asset_type}-import{ext}"
+    return save_asset_bytes(
+        handbook_id=str(handbook.id),
+        asset_type=asset_type,
+        filename=filename,
+        payload=payload,
+        mime_type=mime_type,
+    )
+
+
+def autofill_placeholders_from_client(*, handbook: Handbook) -> None:
+    customer = handbook.customer
+    placeholder_keys = _placeholder_keys_for_handbook(handbook)
+    if not placeholder_keys:
+        return
+
+    existing_values = _existing_placeholder_values(handbook)
+    client_text_values = _build_client_text_values(customer)
+
+    for key in sorted(placeholder_keys):
+        if key in ASSET_KEYS:
+            continue
+
+        imported_value = client_text_values.get(key)
+        if imported_value is None:
+            continue
+
+        existing = existing_values.get(key)
+        if existing is not None and isinstance(existing.value_text, str) and existing.value_text.strip():
+            continue
+
+        if existing is None:
+            created = PlaceholderValue.objects.create(
+                handbook=handbook,
+                key=key,
+                value_text=imported_value,
+                asset_id=None,
+                source=PlaceholderValue.Source.IMPORTED,
+            )
+            existing_values[key] = created
+            continue
+
+        existing.value_text = imported_value
+        existing.asset_id = None
+        existing.source = PlaceholderValue.Source.IMPORTED
+        existing.save(update_fields=["value_text", "asset_id", "source", "updated_at"])
+
+    decode_cache: dict[str, tuple[bytes, str, str]] = {}
+    asset_inputs = {
+        CANONICAL_ASSET_LOGO: ("logo", customer.logo_url),
+        CANONICAL_ASSET_SIGNATURE: ("signature", customer.signature_url),
+    }
+    for key, (asset_type, data_url) in asset_inputs.items():
+        if key not in placeholder_keys:
+            continue
+
+        existing = existing_values.get(key)
+        if existing is not None and existing.asset_id is not None:
+            continue
+
+        asset = get_active_asset(handbook_id=str(handbook.id), asset_type=asset_type)
+        if asset is None and isinstance(data_url, str) and data_url.strip():
+            try:
+                asset = _import_asset_from_client_data_url(
+                    handbook=handbook,
+                    asset_type=asset_type,
+                    data_url=data_url,
+                    decode_cache=decode_cache,
+                )
+            except AssetValidationError as exc:
+                logger.warning(
+                    "Skipping invalid client %s asset for handbook %s: %s",
+                    asset_type,
+                    handbook.id,
+                    exc,
+                )
+                continue
+
+        if asset is None:
+            continue
+
+        if existing is None:
+            created = PlaceholderValue.objects.create(
+                handbook=handbook,
+                key=key,
+                value_text=None,
+                asset_id=asset.id,
+                source=PlaceholderValue.Source.IMPORTED,
+            )
+            existing_values[key] = created
+            continue
+
+        existing.value_text = None
+        existing.asset_id = asset.id
+        existing.source = PlaceholderValue.Source.IMPORTED
+        existing.save(update_fields=["value_text", "asset_id", "source", "updated_at"])
+
+
 @transaction.atomic
 def upload_handbook_zip(*, handbook: Handbook, uploaded) -> UploadZipResult:
     filename = str(getattr(uploaded, "name", "")).strip()
@@ -572,8 +963,24 @@ def upload_handbook_zip(*, handbook: Handbook, uploaded) -> UploadZipResult:
 
             if ext in PARSEABLE_EXTS:
                 try:
-                    payload = dest_path.read_bytes()
-                    extracted = extract_placeholders_from_ooxml_bytes(payload, ext)
+                    cache_entry = PlaceholderParseCache.objects.filter(
+                        checksum=hasher.hexdigest(),
+                        file_type=file_type,
+                    ).first()
+                    extracted: dict[str, list[dict[str, object]]]
+                    if cache_entry and isinstance(cache_entry.placeholders, dict):
+                        extracted = {
+                            str(key): list(value) if isinstance(value, list) else []
+                            for key, value in cache_entry.placeholders.items()
+                        }
+                    else:
+                        payload = dest_path.read_bytes()
+                        extracted = extract_placeholders_from_ooxml_bytes(payload, ext)
+                        PlaceholderParseCache.objects.update_or_create(
+                            checksum=hasher.hexdigest(),
+                            file_type=file_type,
+                            defaults={"placeholders": extracted},
+                        )
                     placeholders = [
                         Placeholder(
                             handbook_file=handbook_file,
@@ -612,7 +1019,10 @@ def upload_handbook_zip(*, handbook: Handbook, uploaded) -> UploadZipResult:
     if files:
         handbook.status = Handbook.Status.IN_PROGRESS
         handbook.save(update_fields=["status", "updated_at"])
+        autofill_placeholders_from_client(handbook=handbook)
+        refresh_handbook_completion(handbook=handbook)
 
+    files = list(HandbookFile.objects.filter(handbook=handbook).order_by("path_in_handbook"))
     tree = build_handbook_tree(handbook=handbook)
     return UploadZipResult(tree=tree, files=files, warnings=warnings)
 
@@ -710,12 +1120,14 @@ def save_placeholder_values(
             defaults=defaults,
         )
 
-    _update_file_completion(handbook, handbook_file)
-    _update_handbook_status(handbook)
-    snapshot = _create_snapshot(handbook, reason="save_placeholders")
+    resolved = _resolved_keys(handbook)
+    _update_file_completion(handbook, handbook_file, resolved_keys=resolved)
+    _update_handbook_status(handbook, resolved_keys=resolved)
+    completion_summary = get_handbook_completion_summary(handbook=handbook)
 
     return {
-        "snapshot": snapshot,
+        "snapshot": None,
+        "handbook_completion": completion_summary,
         **get_file_placeholders(handbook=handbook, handbook_file=handbook_file),
     }
 
@@ -920,6 +1332,7 @@ def export_handbook(*, handbook: Handbook) -> tuple[Path, VersionSnapshot]:
             arcname = str(file_path.relative_to(output_root))
             archive.write(file_path, arcname)
 
+    completion_summary, completion_hash = _build_completion_state(handbook)
     handbook.status = Handbook.Status.EXPORTED
     handbook.save(update_fields=["status", "updated_at"])
     snapshot = _create_snapshot(
@@ -929,6 +1342,12 @@ def export_handbook(*, handbook: Handbook) -> tuple[Path, VersionSnapshot]:
             "export_zip_path": str(zip_path),
             "export_filename": zip_path.name,
             "downloadable": True,
+            "completion_hash": completion_hash,
+            "required_total": completion_summary["required_total"],
+            "required_resolved": completion_summary["required_resolved"],
+            "is_complete_required": completion_summary["is_complete_required"],
+            "completion_files": completion_summary["files"],
+            "file_checksums": completion_summary["file_checksums"],
         },
     )
     return zip_path, snapshot

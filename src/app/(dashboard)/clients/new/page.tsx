@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import type { CreateClientInput } from "@/lib/schemas";
+import { SignatureCanvasInput } from '@/components/client-form/SignatureCanvasInput';
 import { ImageIcon, X } from 'lucide-react';
 
 export default function NewClientPage() {
@@ -46,24 +47,6 @@ export default function NewClientPage() {
 			const reader = new FileReader();
 			reader.onload = ev => {
 				setValue('logoUrl', ev.target?.result as string, {
-					shouldValidate: true,
-				});
-			};
-			reader.readAsDataURL(file);
-		},
-		[setValue],
-	);
-
-	// ── Signature upload ─────────────────────────────────────────────────
-	// Note: Signature is stored as a base64 data URL for now.
-	// TODO: Replace base64 storage with an S3 presigned URL upload/download flow.
-	const handleSignatureChange = useCallback(
-		(e: React.ChangeEvent<HTMLInputElement>) => {
-			const file = e.target.files?.[0];
-			if (!file) return;
-			const reader = new FileReader();
-			reader.onload = ev => {
-				setValue('signatureUrl', ev.target?.result as string, {
 					shouldValidate: true,
 				});
 			};
@@ -321,44 +304,15 @@ export default function NewClientPage() {
 								</div>
 							</CardHeader>
 							<CardContent className="space-y-3">
-								<input
-									id="signature-file"
-									type="file"
-									accept="image/*"
-									className="hidden"
-									onChange={handleSignatureChange}
+								<SignatureCanvasInput
+									value={signatureUrl}
+									onChange={value => {
+										setValue('signatureUrl', value, {
+											shouldDirty: true,
+											shouldValidate: true,
+										});
+									}}
 								/>
-								{signatureUrl ? (
-									<div className="relative">
-										{/* eslint-disable-next-line @next/next/no-img-element */}
-										<img
-											src={signatureUrl}
-											alt="Unterschrift"
-											className="w-full max-h-40 object-contain rounded-lg border border-gray-200 bg-gray-50 p-2"
-										/>
-										<button
-											type="button"
-											onClick={() => setValue('signatureUrl', undefined)}
-											className="absolute top-1 right-1 rounded-full bg-white border border-gray-200 p-0.5 shadow-sm hover:bg-gray-100"
-											aria-label="Unterschrift entfernen"
-										>
-											<X className="w-3.5 h-3.5 text-gray-600" />
-										</button>
-									</div>
-								) : (
-									<label
-										htmlFor="signature-file"
-										className="flex flex-col items-center justify-center gap-2 h-32 rounded-lg border-2 border-dashed border-gray-200 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
-									>
-										<ImageIcon className="w-8 h-8 text-gray-400" />
-										<span className="text-sm text-gray-500">
-											Unterschrift hochladen
-										</span>
-										<span className="text-xs text-gray-400">
-											PNG, JPG, SVG
-										</span>
-									</label>
-								)}
 								<p className="text-xs text-gray-400">
 									Unterschrift wird lokal gespeichert.{' '}
 									{/* TODO: In a future iteration, upload to S3 and store only the URL. */}

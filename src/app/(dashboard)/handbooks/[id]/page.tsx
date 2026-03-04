@@ -3,6 +3,14 @@
 import { use, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Header } from '@/components/layout/Header';
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -12,21 +20,27 @@ import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { FileTree } from '@/components/handbook-wizard/FileTree';
 import { AssetSlotCard } from '@/components/handbook-wizard/AssetSlotCard';
+import { SignatureCanvasCard } from '@/components/handbook-wizard/SignatureCanvasCard';
+import { ZipDropzone } from '@/components/handbook-wizard/ZipDropzone';
 import { useClient } from '@/hooks/useClients';
+import { useCompletionTransitionModal } from '@/hooks/useCompletionTransitionModal';
 import {
-  useAiFillHandbookPlaceholder,
-  useDeleteHandbookVersion,
-  useDownloadHandbookVersion,
-  useDeleteWorkspaceAsset,
-  useExportHandbook,
-  useFilePlaceholders,
-  useHandbook,
-  useHandbookTree,
-  useHandbookVersions,
-  useSaveFilePlaceholders,
-  useUploadHandbookZip,
-  useUploadWorkspaceAsset,
-  useWorkspaceAssets,
+	useAiFillHandbookPlaceholder,
+	useCreateHandbookVersion,
+	useDeleteHandbookVersion,
+	useDownloadHandbookVersion,
+	useDeleteWorkspaceAsset,
+	useExportHandbook,
+	useFilePlaceholders,
+	useHandbookCompletion,
+	useHandbook,
+	useHandbookTree,
+	useHandbookVersions,
+	useSaveFilePlaceholders,
+	useSaveSignatureCanvas,
+	useUploadHandbookZip,
+	useUploadWorkspaceAsset,
+	useWorkspaceAssets,
 } from '@/hooks';
 
 interface PageProps {
@@ -81,29 +95,42 @@ export default function HandbookPage({ params }: PageProps) {
   const { data: handbook, isLoading: handbookLoading } = useHandbook(id);
   const { data: client, isLoading: clientLoading } = useClient(handbook?.customer_id ?? '');
   const { data: treeResponse = [], isLoading: treeLoading } = useHandbookTree(id);
+  const { data: completion } = useHandbookCompletion(id);
   const { data: assets = [] } = useWorkspaceAssets(id);
   const { data: versions = [] } = useHandbookVersions(id);
 
   const uploadZip = useUploadHandbookZip(id);
   const uploadAsset = useUploadWorkspaceAsset(id);
+  const saveSignature = useSaveSignatureCanvas(id);
   const deleteAsset = useDeleteWorkspaceAsset(id);
   const savePlaceholders = useSaveFilePlaceholders(id);
   const aiFill = useAiFillHandbookPlaceholder(id);
   const deleteVersion = useDeleteHandbookVersion(id);
   const downloadVersion = useDownloadHandbookVersion(id);
+  const createVersion = useCreateHandbookVersion(id);
   const exportHandbook = useExportHandbook(id);
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [selectedVersionNumber, setSelectedVersionNumber] = useState<number | null>(null);
+  const [selectedZipFile, setSelectedZipFile] = useState<File | null>(null);
+	const [zipUploadError, setZipUploadError] = useState<string | null>(null);
   const [aiInstruction, setAiInstruction] = useState('');
   const [aiLanguage, setAiLanguage] = useState<'de-DE' | 'en-US'>('de-DE');
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
 
   const flatFiles = useMemo(() => flattenFileNodes(treeResponse), [treeResponse]);
-  const totalPlaceholders = flatFiles.reduce((sum, item) => sum + item.placeholder_total, 0);
-  const resolvedPlaceholders = flatFiles.reduce((sum, item) => sum + item.placeholder_resolved, 0);
-  const allComplete = totalPlaceholders === 0 || resolvedPlaceholders === totalPlaceholders;
+  const totalPlaceholders =
+		completion?.required_total ??
+		flatFiles.reduce((sum, item) => sum + item.placeholder_total, 0);
+	const resolvedPlaceholders =
+		completion?.required_resolved ??
+		flatFiles.reduce((sum, item) => sum + item.placeholder_resolved, 0);
+	const allComplete =
+		completion?.is_complete_required ??
+		(totalPlaceholders === 0 || resolvedPlaceholders === totalPlaceholders);
+	const { open: completionDialogOpen, setOpen: setCompletionDialogOpen } =
+		useCompletionTransitionModal(completion?.is_complete_required);
 
   const selectedFile = useMemo(
     () => flatFiles.find(file => file.id === selectedFileId) ?? null,
@@ -155,28 +182,32 @@ export default function HandbookPage({ params }: PageProps) {
     return <div className="p-8 text-gray-500">Handbuch nicht gefunden.</div>;
   }
 
-  async function handleUploadZip(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  async function handleUploadZip(file: File) {
+		setZipUploadError(null);
+		setSelectedZipFile(file);
+		try {
+			const result = await uploadZip.mutateAsync(file);
+			toast.success(`ZIP verarbeitet: ${result.summary.files_total} Dateien`);
+			if (result.warnings.length > 0) {
+				toast.warning(
+					`${result.warnings.length} ZIP-Eintraege wurden uebersprungen.`,
+				);
+			}
 
-    try {
-      const result = await uploadZip.mutateAsync(file);
-      toast.success(`ZIP verarbeitet: ${result.summary.files_total} Dateien`);
-      if (result.warnings.length > 0) {
-        toast.warning(`${result.warnings.length} ZIP-Eintraege wurden uebersprungen.`);
-      }
-
-      const parsedFile = result.files.find(item => item.parse_status !== 'FAILED');
-      if (parsedFile) {
-        setSelectedFileId(parsedFile.id);
-        setSelectedPath(parsedFile.path_in_handbook);
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'ZIP Upload fehlgeschlagen');
-    } finally {
-      event.target.value = '';
-    }
-  }
+			const parsedFile = result.files.find(
+				item => item.parse_status !== 'FAILED',
+			);
+			if (parsedFile) {
+				setSelectedFileId(parsedFile.id);
+				setSelectedPath(parsedFile.path_in_handbook);
+			}
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : 'ZIP Upload fehlgeschlagen';
+			setZipUploadError(message);
+			toast.error(message);
+		}
+	}
 
   async function handleUploadAsset(file: File, assetType: 'logo' | 'signature') {
     try {
@@ -262,11 +293,49 @@ export default function HandbookPage({ params }: PageProps) {
         value_text: variableValues[item.key] ?? '',
       }));
       await savePlaceholders.mutateAsync({ fileId: selectedFileId, values, source: 'MANUAL' });
-      toast.success('Platzhalter gespeichert und Snapshot erstellt');
+      toast.success('Platzhalter gespeichert');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Speichern fehlgeschlagen');
     }
   }
+
+  async function handleSaveSignature(file: File) {
+		try {
+			await saveSignature.mutateAsync({
+				file,
+				filename: 'signature-canvas.png',
+			});
+			toast.success('Signatur gespeichert');
+		} catch (error) {
+			toast.error(
+				error instanceof Error
+					? error.message
+					: 'Signatur speichern fehlgeschlagen',
+			);
+		}
+	}
+
+	async function handleCreateVersion(reason = 'manual_completion') {
+		try {
+			const result = await createVersion.mutateAsync({
+				createdBy: 'user',
+				reason,
+			});
+			setSelectedVersionNumber(result.snapshot.version_number);
+			setCompletionDialogOpen(false);
+			if (result.created) {
+				toast.success(`Version v${result.snapshot.version_number} erstellt`);
+			} else {
+				toast.info(`Keine Aenderung seit v${result.snapshot.version_number}`);
+			}
+		} catch (error) {
+			toast.error(
+				error instanceof Error
+					? error.message
+					: 'Version erstellen fehlgeschlagen',
+			);
+		}
+	}
 
   async function handleExport() {
     try {
@@ -319,256 +388,382 @@ export default function HandbookPage({ params }: PageProps) {
   const signatureAsset = assets.find(item => item.asset_type === 'signature');
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
-      <Header
-        title={`${handbook.type} Handbuch`}
-        subtitle={`${client.name} · ${resolvedPlaceholders}/${totalPlaceholders} Platzhalter geloest`}
-        actions={<Badge variant="blue">{handbook.status}</Badge>}
-      />
+		<div className="flex flex-col h-screen overflow-hidden">
+			<Header
+				title={`${handbook.type} Handbuch`}
+				subtitle={`${client.name} · ${resolvedPlaceholders}/${totalPlaceholders} Pflicht-Platzhalter geloest`}
+				actions={<Badge variant="blue">{handbook.status}</Badge>}
+			/>
 
-      <div className="flex-1 overflow-y-auto px-8 py-6">
-        <div className="grid grid-cols-3 gap-6">
-          <div className="col-span-2 space-y-4">
-            <Card>
-              <CardHeader>
-                <h3 className="text-sm font-semibold text-gray-900">ZIP Upload</h3>
-              </CardHeader>
-              <CardContent>
-                <input
-                  type="file"
-                  className="block w-full text-sm"
-                  accept=".zip"
-                  onChange={handleUploadZip}
-                />
-                <p className="mt-2 text-xs text-gray-500">
-                  Lade genau ein ZIP mit Vorlagen (DOCX/PPTX/XLSX) und Assets hoch.
-                </p>
-              </CardContent>
-            </Card>
+			<div className="flex-1 overflow-y-auto px-8 py-6">
+				<div className="grid grid-cols-3 gap-6">
+					<div className="col-span-2 space-y-4">
+						<Card>
+							<CardHeader>
+								<h3 className="text-sm font-semibold text-gray-900">
+									ZIP Upload
+								</h3>
+							</CardHeader>
+							<CardContent>
+								<ZipDropzone
+									loading={uploadZip.isPending}
+									selectedFile={selectedZipFile}
+									error={zipUploadError}
+									onFileSelected={file => {
+										void handleUploadZip(file);
+									}}
+								/>
+							</CardContent>
+						</Card>
 
-            <Card>
-              <CardHeader>
-                <h3 className="text-sm font-semibold text-gray-900">Dateibaum</h3>
-              </CardHeader>
-              <CardContent>
-                {treeLoading ? (
-                  <div className="flex justify-center py-8">
-                    <Spinner />
-                  </div>
-                ) : (
-                  <FileTree
-                    nodes={treeResponse as any}
-                    selectedPath={selectedPath}
-                    onSelectFile={selectFileByPath}
-                  />
-                )}
-              </CardContent>
-            </Card>
+						<Card>
+							<CardHeader>
+								<h3 className="text-sm font-semibold text-gray-900">
+									Dateibaum
+								</h3>
+							</CardHeader>
+							<CardContent>
+								{treeLoading ? (
+									<div className="flex justify-center py-8">
+										<Spinner />
+									</div>
+								) : (
+									<FileTree
+										nodes={treeResponse as any}
+										selectedPath={selectedPath}
+										onSelectFile={selectFileByPath}
+									/>
+								)}
+							</CardContent>
+						</Card>
 
-            {selectedFile && (
-              <Card>
-                <CardHeader>
-                  <h3 className="text-sm font-semibold text-gray-900">{selectedFile.name}</h3>
-                  <p className="text-xs text-gray-500">{selectedFile.path}</p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2 rounded border border-gray-200 bg-gray-50 p-3">
-                    <Label className="text-xs">Globale AI-Anweisung</Label>
-                    <Textarea
-                      rows={3}
-                      value={aiInstruction}
-                      onChange={event => setAiInstruction(event.target.value)}
-                      placeholder="Beispiel: Formuliere ISO/SCC-konform, praezise und sachlich."
-                    />
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs">Sprache</Label>
-                      <select
-                        value={aiLanguage}
-                        onChange={event => setAiLanguage(event.target.value as 'de-DE' | 'en-US')}
-                        className="h-8 rounded border border-gray-200 bg-white px-2 text-xs"
-                      >
-                        <option value="de-DE">Deutsch (de-DE)</option>
-                        <option value="en-US">English (en-US)</option>
-                      </select>
-                    </div>
-                  </div>
+						{selectedFile && (
+							<Card>
+								<CardHeader>
+									<h3 className="text-sm font-semibold text-gray-900">
+										{selectedFile.name}
+									</h3>
+									<p className="text-xs text-gray-500">{selectedFile.path}</p>
+								</CardHeader>
+								<CardContent className="space-y-4">
+									<div className="space-y-2 rounded border border-gray-200 bg-gray-50 p-3">
+										<Label className="text-xs">Globale AI-Anweisung</Label>
+										<Textarea
+											rows={3}
+											value={aiInstruction}
+											onChange={event => setAiInstruction(event.target.value)}
+											placeholder="Beispiel: Formuliere ISO/SCC-konform, praezise und sachlich."
+										/>
+										<div className="flex items-center gap-2">
+											<Label className="text-xs">Sprache</Label>
+											<select
+												value={aiLanguage}
+												onChange={event =>
+													setAiLanguage(event.target.value as 'de-DE' | 'en-US')
+												}
+												className="h-8 rounded border border-gray-200 bg-white px-2 text-xs"
+											>
+												<option value="de-DE">Deutsch (de-DE)</option>
+												<option value="en-US">English (en-US)</option>
+											</select>
+										</div>
+									</div>
 
-                  {placeholdersLoading ? (
-                    <div className="flex justify-center py-8">
-                      <Spinner />
-                    </div>
-                  ) : (
-                    <>
-                      <div className="space-y-2">
-                        <h4 className="text-xs font-semibold text-gray-700">Text-Platzhalter</h4>
-                        {textPlaceholders.length === 0 ? (
-                          <p className="text-xs text-gray-500">Keine Text-Platzhalter in dieser Datei.</p>
-                        ) : (
-                          textPlaceholders.map(item => (
-                            <div key={item.id} className="space-y-1">
-                              <Label className="text-xs">
-                                {item.key}
-                                {item.required ? ' *' : ' (optional)'}
-                              </Label>
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  value={variableValues[item.key] ?? ''}
-                                  onChange={event =>
-                                    setVariableValues(prev => ({
-                                      ...prev,
-                                      [item.key]: event.target.value,
-                                    }))
-                                  }
-                                />
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  loading={aiFill.isPending}
-                                  onClick={() => void handleAiFill(item.key, Boolean(item.required))}
-                                >
-                                  AI
-                                </Button>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
+									{placeholdersLoading ? (
+										<div className="flex justify-center py-8">
+											<Spinner />
+										</div>
+									) : (
+										<>
+											<div className="space-y-2">
+												<h4 className="text-xs font-semibold text-gray-700">
+													Text-Platzhalter
+												</h4>
+												{textPlaceholders.length === 0 ? (
+													<p className="text-xs text-gray-500">
+														Keine Text-Platzhalter in dieser Datei.
+													</p>
+												) : (
+													textPlaceholders.map(item => {
+														const currentValue = variableValues[item.key] ?? '';
+														const isUnresolved =
+															Boolean(item.required) &&
+															currentValue.trim() === '';
+														return (
+															<div
+																key={item.id}
+																className="space-y-1"
+															>
+																<Label
+																	className={
+																		isUnresolved
+																			? 'text-xs text-orange-800'
+																			: 'text-xs'
+																	}
+																>
+																	{item.key}
+																	{item.required ? ' *' : ' (optional)'}
+																</Label>
+																<div className="flex w-full items-center gap-2">
+																	<div className="flex-1 min-w-0">
+																		<Input
+																			value={currentValue}
+																			className={
+																				isUnresolved
+																					? 'border-orange-300 focus-visible:ring-orange-500'
+																					: undefined
+																			}
+																			onChange={event =>
+																				setVariableValues(prev => ({
+																					...prev,
+																					[item.key]: event.target.value,
+																				}))
+																			}
+																		/>
+																	</div>
+																	<Button
+																		size="sm"
+																		variant="outline"
+																		loading={aiFill.isPending}
+																		onClick={() =>
+																			void handleAiFill(
+																				item.key,
+																				Boolean(item.required),
+																			)
+																		}
+																	>
+																		AI
+																	</Button>
+																</div>
+															</div>
+														);
+													})
+												)}
+											</div>
 
-                      <div className="space-y-2">
-                        <h4 className="text-xs font-semibold text-gray-700">Asset-Platzhalter</h4>
-                        {assetPlaceholders.length === 0 ? (
-                          <p className="text-xs text-gray-500">Keine Asset-Platzhalter in dieser Datei.</p>
-                        ) : (
-                          <div className="rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700 space-y-1">
-                            {assetPlaceholders.map(item => (
-                              <p key={item.id}>
-                                {item.key}
-                                {item.required ? ' *' : ''} · {item.resolved ? 'geloest' : 'offen'}
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+											<div className="space-y-2">
+												<h4 className="text-xs font-semibold text-gray-700">
+													Asset-Platzhalter
+												</h4>
+												{assetPlaceholders.length === 0 ? (
+													<p className="text-xs text-gray-500">
+														Keine Asset-Platzhalter in dieser Datei.
+													</p>
+												) : (
+													<div className="rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700 space-y-1">
+														{assetPlaceholders.map(item => (
+															<p key={item.id}>
+																{item.key}
+																{item.required ? ' *' : ''} ·{' '}
+																{item.resolved ? 'gelöst' : 'offen'}
+															</p>
+														))}
+													</div>
+												)}
+											</div>
 
-                      <div className="flex items-center gap-2">
-                        <Button onClick={handleSavePlaceholders} loading={savePlaceholders.isPending}>
-                          Platzhalter speichern
-                        </Button>
-                        {fileData?.completion && (
-                          <Badge variant={fileData.completion.is_complete ? 'green' : 'orange'}>
-                            Datei: {fileData.completion.resolved}/{fileData.completion.total}
-                          </Badge>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
+											<div className="flex items-center gap-2">
+												<Button
+													onClick={handleSavePlaceholders}
+													loading={savePlaceholders.isPending}
+												>
+													Platzhalter speichern
+												</Button>
+												{fileData?.completion && (
+													<Badge
+														variant={
+															fileData.completion.is_complete
+																? 'green'
+																: 'orange'
+														}
+													>
+														Datei: {fileData.completion.resolved}/
+														{fileData.completion.total}
+													</Badge>
+												)}
+											</div>
+										</>
+									)}
+								</CardContent>
+							</Card>
+						)}
+					</div>
 
-          <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <h3 className="text-sm font-semibold text-gray-900">Assets</h3>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <AssetSlotCard
-                  title="Logo"
-                  assetType="logo"
-                  canonicalKey="assets.logo"
-                  aliases={['{{assets.logo}}', '__ASSET_LOGO__', '[LOGO]']}
-                  asset={logoAsset}
-                  busy={uploadAsset.isPending || deleteAsset.isPending}
-                  onUpload={handleUploadAsset}
-                  onRemove={handleRemoveAsset}
-                />
-                <AssetSlotCard
-                  title="Signatur"
-                  assetType="signature"
-                  canonicalKey="assets.signature"
-                  aliases={['{{assets.signature}}', '__ASSET_SIGNATURE__', '[SIGNATURE]']}
-                  asset={signatureAsset}
-                  busy={uploadAsset.isPending || deleteAsset.isPending}
-                  onUpload={handleUploadAsset}
-                  onRemove={handleRemoveAsset}
-                />
-              </CardContent>
-            </Card>
+					<div className="space-y-4">
+						<Card>
+							<CardHeader>
+								<h3 className="text-sm font-semibold text-gray-900">Assets</h3>
+							</CardHeader>
+							<CardContent className="space-y-3">
+								<AssetSlotCard
+									title="Logo"
+									assetType="logo"
+									canonicalKey="assets.logo"
+									aliases={['{{assets.logo}}', '__ASSET_LOGO__', '[LOGO]']}
+									asset={logoAsset}
+									busy={uploadAsset.isPending || deleteAsset.isPending}
+									onUpload={handleUploadAsset}
+									onRemove={handleRemoveAsset}
+								/>
+								<SignatureCanvasCard
+									asset={signatureAsset}
+									busy={saveSignature.isPending || deleteAsset.isPending}
+									onSave={handleSaveSignature}
+									onRemove={() => handleRemoveAsset('signature')}
+								/>
+							</CardContent>
+						</Card>
 
-            <Card>
-              <CardHeader>
-                <h3 className="text-sm font-semibold text-gray-900">Fortschritt</h3>
-              </CardHeader>
-              <CardContent className="space-y-3 text-xs">
-                <p>
-                  Gesamt: <strong>{resolvedPlaceholders}</strong> / <strong>{totalPlaceholders}</strong>
-                </p>
-                <Button onClick={handleExport} loading={exportHandbook.isPending} disabled={!allComplete}>
-                  Export ZIP
-                </Button>
-                {!allComplete && (
-                  <p className="text-amber-700">Export ist erst moeglich, wenn alle Pflicht-Platzhalter geloest sind.</p>
-                )}
-              </CardContent>
-            </Card>
+						<Card>
+							<CardHeader>
+								<h3 className="text-sm font-semibold text-gray-900">
+									Fortschritt
+								</h3>
+							</CardHeader>
+							<CardContent className="space-y-3 text-xs">
+								<p>
+									Gesamt: <strong>{resolvedPlaceholders}</strong> /{' '}
+									<strong>{totalPlaceholders}</strong>
+								</p>
+								<Button
+									onClick={handleExport}
+									loading={exportHandbook.isPending}
+									disabled={!allComplete}
+								>
+									Export ZIP
+								</Button>
+								{!allComplete && (
+									<p className="text-amber-700">
+										Export ist erst möglich, wenn alle Pflicht-Platzhalter
+										gelöst sind.
+									</p>
+								)}
+							</CardContent>
+						</Card>
 
-            <Card>
-              <CardHeader>
-                <h3 className="text-sm font-semibold text-gray-900">Versionen</h3>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!selectedVersion?.downloadable}
-                  loading={downloadVersion.isPending}
-                  onClick={handleDownloadSelectedVersion}
-                >
-                  Ausgewaehlte Version herunterladen
-                </Button>
-                {versions.length === 0 ? (
-                  <p className="text-xs text-gray-500">Keine Snapshots vorhanden.</p>
-                ) : (
-                  versions.map(version => (
-                    <div
-                      key={version.id}
-                      className="flex items-center justify-between rounded border border-gray-100 px-2 py-1.5 text-xs"
-                    >
-                      <label className="flex min-w-0 items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedVersionNumber === version.version_number}
-                          onChange={event =>
-                            setSelectedVersionNumber(
-                              event.target.checked ? version.version_number : null,
-                            )
-                          }
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                        />
-                        <span>v{version.version_number}</span>
-                        <Badge variant={version.downloadable ? 'green' : 'gray'}>
-                          {version.downloadable ? 'downloadbar' : 'nicht downloadbar'}
-                        </Badge>
-                      </label>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-2 text-red-600"
-                          onClick={() => void handleDeleteVersion(version.version_number)}
-                        >
-                          Loeschen
-                        </Button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+						<Card>
+							<CardHeader>
+								<h3 className="text-sm font-semibold text-gray-900">
+									Versionen
+								</h3>
+							</CardHeader>
+							<CardContent className="space-y-2">
+								<Button
+									size="sm"
+									onClick={() => void handleCreateVersion('manual_click')}
+									loading={createVersion.isPending}
+									disabled={!allComplete}
+								>
+									Neue Version erstellen
+								</Button>
+								<Button
+									size="sm"
+									variant="outline"
+									disabled={!selectedVersion?.downloadable}
+									loading={downloadVersion.isPending}
+									onClick={handleDownloadSelectedVersion}
+								>
+									Ausgewaehlte Version herunterladen
+								</Button>
+								{versions.length === 0 ? (
+									<p className="text-xs text-gray-500">
+										Keine Snapshots vorhanden.
+									</p>
+								) : (
+									versions.map(version => (
+										<div
+											key={version.id}
+											className="flex items-center justify-between rounded border border-gray-100 px-2 py-1.5 text-xs"
+										>
+											<label className="flex min-w-0 items-center gap-2">
+												<input
+													type="checkbox"
+													checked={
+														selectedVersionNumber === version.version_number
+													}
+													onChange={event =>
+														setSelectedVersionNumber(
+															event.target.checked
+																? version.version_number
+																: null,
+														)
+													}
+													className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+												/>
+												<span>v{version.version_number}</span>
+												<Badge
+													variant={version.downloadable ? 'green' : 'gray'}
+												>
+													{version.downloadable
+														? 'downloadbar'
+														: 'nicht downloadbar'}
+												</Badge>
+											</label>
+											<div className="flex items-center gap-1">
+												<Button
+													size="sm"
+													variant="ghost"
+													className="h-7 px-2 text-red-600"
+													onClick={() =>
+														void handleDeleteVersion(version.version_number)
+													}
+												>
+													Löschen
+												</Button>
+											</div>
+										</div>
+									))
+								)}
+							</CardContent>
+						</Card>
+					</div>
+				</div>
+			</div>
+
+			<Dialog
+				open={completionDialogOpen}
+				onOpenChange={setCompletionDialogOpen}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Alle Pflicht-Platzhalter sind geloest</DialogTitle>
+						<DialogDescription>
+							Moechtest du jetzt eine neue Version als Snapshot anlegen?
+						</DialogDescription>
+					</DialogHeader>
+
+					<div className="space-y-2 rounded border border-gray-100 bg-gray-50 p-3 text-xs text-gray-700">
+						<p>
+							<strong>Handbuch:</strong> {handbook.type}
+						</p>
+						<p>
+							<strong>Kunde:</strong> {client.name}
+						</p>
+						<p>
+							<strong>Pflicht-Platzhalter:</strong> {resolvedPlaceholders}/
+							{totalPlaceholders}
+						</p>
+						<p>
+							<strong>Zeitpunkt:</strong> {new Date().toLocaleString('de-DE')}
+						</p>
+					</div>
+
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setCompletionDialogOpen(false)}
+						>
+							Not now
+						</Button>
+						<Button
+							loading={createVersion.isPending}
+							onClick={() => void handleCreateVersion('completion_transition')}
+						>
+							Create version
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		</div>
+	);
 }

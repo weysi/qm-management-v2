@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from pathlib import Path
+import re
 
 from django.conf import settings
 from django.db import transaction
@@ -25,6 +28,15 @@ ALLOWED_ASSET_MIME_TYPES = {
     "image/bmp",
     "image/gif",
 }
+DATA_URL_PATTERN = re.compile(r"^data:(?P<mime>[-a-zA-Z0-9.+/]+);base64,(?P<data>.+)$")
+
+MIME_EXTENSION_MAP = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/bmp": ".bmp",
+    "image/gif": ".gif",
+}
 
 
 def _validate_asset_type(asset_type: str) -> str:
@@ -47,6 +59,47 @@ def _validate_asset_format(*, filename: str, mime_type: str) -> tuple[str, str]:
     if normalized_mime not in ALLOWED_ASSET_MIME_TYPES:
         raise AssetValidationError("Unsupported asset mime type")
     return ext, normalized_mime
+
+
+def extension_for_mime(mime_type: str) -> str:
+    normalized = (mime_type or "").lower().strip()
+    return MIME_EXTENSION_MAP.get(normalized, ".png")
+
+
+def decode_image_data_url(
+    *,
+    data_url: str,
+    max_bytes: int | None = None,
+) -> tuple[bytes, str]:
+    raw = (data_url or "").strip()
+    if not raw:
+        raise AssetValidationError("data_url is required")
+    if not raw.startswith("data:"):
+        raise AssetValidationError("Expected data URL image payload")
+
+    match = DATA_URL_PATTERN.match(raw)
+    if not match:
+        raise AssetValidationError("Invalid data_url format")
+
+    mime_type = str(match.group("mime") or "").strip().lower()
+    if mime_type not in ALLOWED_ASSET_MIME_TYPES:
+        raise AssetValidationError("Unsupported asset mime type")
+
+    encoded = str(match.group("data") or "")
+    try:
+        payload = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise AssetValidationError("Invalid base64 image payload") from exc
+
+    if not payload:
+        raise AssetValidationError("Image payload is empty")
+
+    if max_bytes is not None and len(payload) > max_bytes:
+        raise AssetValidationError(
+            f"Image payload exceeds configured size limit ({max_bytes} bytes)"
+        )
+
+    return payload, mime_type
 
 
 def asset_download_url(handbook_id: str, asset_type: str) -> str:
@@ -143,6 +196,34 @@ def upload_asset(*, handbook_id: str, asset_type: str, uploaded) -> WorkspaceAss
         filename=uploaded.name,
         payload=uploaded.read(),
         mime_type=uploaded.content_type or "application/octet-stream",
+    )
+
+
+def save_signature_data_url(
+    *,
+    handbook_id: str,
+    data_url: str,
+    filename: str = "signature-canvas.png",
+) -> WorkspaceAsset:
+    payload, mime_type = decode_image_data_url(
+        data_url=data_url,
+        max_bytes=int(
+            getattr(
+                settings,
+                "ASSET_MAX_UPLOAD_BYTES",
+                getattr(settings, "OFFICE_ASSET_MAX_BUFFER_BYTES", 20 * 1024 * 1024),
+            )
+        ),
+    )
+    if mime_type != "image/png":
+        raise AssetValidationError("Signature canvas must be exported as PNG")
+
+    return save_asset_bytes(
+        handbook_id=handbook_id,
+        asset_type=WorkspaceAsset.AssetType.SIGNATURE,
+        filename=filename,
+        payload=payload,
+        mime_type=mime_type,
     )
 
 

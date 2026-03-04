@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { ChevronRight, Folder, FolderOpen, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -23,52 +24,30 @@ interface FileTreeProps {
 }
 
 function FolderIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      className={cn('w-4 h-4 shrink-0', open ? 'text-blue-500' : 'text-blue-400')}
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-      />
-    </svg>
-  );
+  const Icon = open ? FolderOpen : Folder;
+	return (
+		<Icon
+			className={cn(
+				'w-4 h-4 shrink-0',
+				open ? 'text-blue-500' : 'text-blue-400',
+			)}
+		/>
+	);
 }
 
 function FileIcon() {
-  return (
-    <svg
-      className="w-4 h-4 shrink-0 text-gray-400"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-      />
-    </svg>
-  );
+  return <FileText className="w-4 h-4 shrink-0 text-gray-400" />;
 }
 
 function ChevronIcon({ open }: { open: boolean }) {
   return (
-    <svg
-      className={cn('w-3 h-3 text-gray-400 transition-transform', open && 'rotate-90')}
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-    </svg>
-  );
+		<ChevronRight
+			className={cn(
+				'w-3 h-3 text-gray-400 transition-transform',
+				open && 'rotate-90',
+			)}
+		/>
+	);
 }
 
 function TreeRow({
@@ -96,14 +75,18 @@ function TreeRow({
   const open = expanded.has(node.path);
   const progress = progressByPath.get(node.path) ?? { total: 0, resolved: 0 };
   const showProgress = progress.total > 0;
+  const isUnresolved = showProgress && progress.resolved < progress.total;
 
   return (
     <div>
       <div
         className={cn(
           'group flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-gray-50',
+          isUnresolved && 'bg-orange-50/80 hover:bg-orange-50',
           !isFolder && selectedPath === node.path && 'bg-primary/10',
         )}
+        data-node-path={node.path}
+        data-unresolved={isUnresolved ? 'true' : 'false'}
         style={{ paddingLeft: `${depth * 14 + 8}px` }}
       >
         {isFolder ? (
@@ -124,6 +107,7 @@ function TreeRow({
           className={cn(
             'flex flex-1 min-w-0 items-center justify-between gap-2 text-left',
             isFolder ? 'font-medium text-gray-800' : 'text-gray-700',
+            isUnresolved && (isFolder ? 'text-orange-900' : 'text-orange-800'),
           )}
           onClick={() => {
             if (isFolder) {
@@ -135,7 +119,14 @@ function TreeRow({
         >
           <span className="truncate">{node.name}</span>
           {showProgress && (
-            <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-700">
+            <span
+              className={cn(
+                'shrink-0 rounded px-1.5 py-0.5 text-[11px]',
+                isUnresolved
+                  ? 'bg-orange-100 text-orange-800'
+                  : 'bg-gray-100 text-gray-700',
+              )}
+            >
               {progress.resolved}/{progress.total}
             </span>
           )}
@@ -254,21 +245,21 @@ export function FileTree({
   }
 
   return (
-    <div className="rounded-lg border border-gray-100 p-2">
-      {nodes.map(node => (
-        <TreeRow
-          key={node.path}
-          node={node}
-          depth={0}
-          expanded={expanded}
-          setExpanded={setExpanded}
-          progressByPath={progressByPath}
-          selectedPath={selectedPath}
-          onSelectFile={onSelectFile}
-          onDeleteFile={onDeleteFile}
-          onDeleteFolder={onDeleteFolder}
-        />
-      ))}
-    </div>
-  );
+		<div className="rounded-lg border border-gray-100 p-2 max-h-[480px] overflow-y-auto">
+			{nodes.map(node => (
+				<TreeRow
+					key={node.path}
+					node={node}
+					depth={0}
+					expanded={expanded}
+					setExpanded={setExpanded}
+					progressByPath={progressByPath}
+					selectedPath={selectedPath}
+					onSelectFile={onSelectFile}
+					onDeleteFile={onDeleteFile}
+					onDeleteFolder={onDeleteFolder}
+				/>
+			))}
+		</div>
+	);
 }

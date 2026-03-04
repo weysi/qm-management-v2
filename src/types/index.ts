@@ -55,6 +55,8 @@ export type {
   HandbookTreeNode,
   HandbookPlaceholder,
   HandbookSnapshot,
+  HandbookCompletionFile,
+  HandbookCompletion,
 } from "@/lib/schemas/handbook.schema";
 
 export type {

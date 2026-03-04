@@ -16,6 +16,7 @@ urlpatterns = [
     path("handbooks/<str:handbook_id>", views.handbook_detail_view),
     path("handbooks/<str:handbook_id>/upload-zip", views.handbook_upload_zip_view),
     path("handbooks/<str:handbook_id>/tree", views.handbook_tree_view),
+    path("handbooks/<str:handbook_id>/completion", views.handbook_completion_view),
     path(
         "handbooks/<str:handbook_id>/files/<str:file_id>/placeholders",
         views.handbook_file_placeholders_view,
@@ -39,6 +40,10 @@ urlpatterns = [
     ),
     path("handbooks/<str:handbook_id>/export", views.handbook_export_view),
     path("handbooks/<str:handbook_id>/assets", views.handbook_assets_view),
+    path(
+        "handbooks/<str:handbook_id>/assets/signature",
+        views.handbook_signature_asset_view,
+    ),
     path(
         "handbooks/<str:handbook_id>/variables/ai-fill",
         views.handbook_variable_ai_fill_view,

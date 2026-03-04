@@ -51,20 +51,10 @@ function normalizeTreeNode(node: unknown): unknown {
 
   const record = node as Record<string, unknown>;
   const normalized: Record<string, unknown> = { ...record };
-  let mutated = false;
-
   if (normalized.children === null) {
     delete normalized.children;
-    mutated = true;
   } else if (Array.isArray(normalized.children)) {
     normalized.children = normalized.children.map(child => normalizeTreeNode(child));
-  }
-
-  if (mutated && process.env.NODE_ENV !== 'production') {
-    console.warn('[documents] normalized legacy tree node with children=null', {
-      path: normalized.path,
-      kind: normalized.kind,
-    });
   }
 
   return normalized;
@@ -84,12 +74,19 @@ function normalizeTreeResponse(payload: unknown): unknown {
   };
 }
 
-function toAssetProxyUrl(handbookId: string, assetType: 'logo' | 'signature') {
-  return `/api/handbooks/${encodeURIComponent(handbookId)}/assets/${assetType}/download`;
+function toAssetProxyUrl(
+  handbookId: string,
+  assetType: 'logo' | 'signature',
+  versionToken?: string,
+) {
+  const base = `/api/handbooks/${encodeURIComponent(handbookId)}/assets/${assetType}/download`;
+  if (!versionToken) return base;
+  return `${base}?v=${encodeURIComponent(versionToken)}`;
 }
 
 function normalizeWorkspaceAsset(asset: WorkspaceAsset): WorkspaceAsset {
-  const proxyUrl = toAssetProxyUrl(asset.handbook_id, asset.asset_type);
+  const versionToken = asset.updated_at || asset.id;
+  const proxyUrl = toAssetProxyUrl(asset.handbook_id, asset.asset_type, versionToken);
   return {
     ...asset,
     preview_url: asset.preview_url ? proxyUrl : asset.preview_url,

@@ -95,9 +95,27 @@ export const HandbookSnapshotSchema = z.object({
   created_at: z.string(),
 });
 
+export const HandbookCompletionFileSchema = z.object({
+  file_id: z.string().uuid(),
+  path: z.string(),
+  required_total: z.number().int().nonnegative(),
+  required_resolved: z.number().int().nonnegative(),
+  is_complete_required: z.boolean(),
+});
+
+export const HandbookCompletionSchema = z.object({
+  handbook_id: z.string().uuid(),
+  required_total: z.number().int().nonnegative(),
+  required_resolved: z.number().int().nonnegative(),
+  is_complete_required: z.boolean(),
+  files: z.array(HandbookCompletionFileSchema),
+});
+
 export type HandbookType = z.infer<typeof HandbookTypeSchema>;
 export type HandbookStatus = z.infer<typeof HandbookStatusSchema>;
 export type Handbook = z.infer<typeof HandbookSchema>;
 export type HandbookFile = z.infer<typeof HandbookFileSchema>;
 export type HandbookPlaceholder = z.infer<typeof HandbookPlaceholderSchema>;
 export type HandbookSnapshot = z.infer<typeof HandbookSnapshotSchema>;
+export type HandbookCompletionFile = z.infer<typeof HandbookCompletionFileSchema>;
+export type HandbookCompletion = z.infer<typeof HandbookCompletionSchema>;

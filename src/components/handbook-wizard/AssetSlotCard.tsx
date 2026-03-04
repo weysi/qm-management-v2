@@ -92,7 +92,7 @@ export function AssetSlotCard({
 							<p>{formatBytes(asset.size_bytes)}</p>
 						</div>
 					) : (
-						<p>PNG/JPG/SVG hochladen. Office-Exports betten das Bild als Binärdatei ein.</p>
+						<p>PNG/JPG/BMP/GIF hochladen. Office-Exports betten das Bild ohne Neu-Encodierung ein.</p>
 					)}
 				</div>
 

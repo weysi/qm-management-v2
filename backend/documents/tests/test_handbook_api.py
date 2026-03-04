@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from io import BytesIO
 from pathlib import Path
 import tempfile
@@ -11,9 +12,15 @@ from rest_framework.test import APIClient
 from docx import Document as WordDocument
 
 from clients.models import Client
+from documents.models import Handbook, PlaceholderParseCache, PlaceholderValue, WorkspaceAsset
+from documents.services.handbook_service import autofill_placeholders_from_client
 
 
 class HandbookApiTests(TestCase):
+    TRANSPARENT_PNG_BASE64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="
+    )
+
     def setUp(self):
         self.client = APIClient()
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -42,6 +49,33 @@ class HandbookApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 201)
         return response.json()["id"]
+
+    def _transparent_png_bytes(self) -> bytes:
+        return base64.b64decode(self.TRANSPARENT_PNG_BASE64)
+
+    def _create_zip_with_docx(self, relative_path: str, document: WordDocument) -> bytes:
+        stream = BytesIO()
+        document.save(stream)
+
+        archive = BytesIO()
+        with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
+            bundle.writestr(relative_path, stream.getvalue())
+        return archive.getvalue()
+
+    def _upload_zip_bytes(self, handbook_id: str, payload: bytes):
+        upload = SimpleUploadedFile("templates.zip", payload, content_type="application/zip")
+        return self.client.post(
+            f"/api/v1/handbooks/{handbook_id}/upload-zip",
+            {"file": upload},
+            format="multipart",
+        )
+
+    def _save_signature(self, handbook_id: str, data_url: str):
+        return self.client.post(
+            f"/api/v1/handbooks/{handbook_id}/assets/signature",
+            {"data_url": data_url, "filename": "signature.png"},
+            format="json",
+        )
 
     @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
     def test_upload_zip_skips_junk_and_unsafe_paths(self):
@@ -108,26 +142,132 @@ class HandbookApiTests(TestCase):
         self.assertIn("company_name", keys)
 
     @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_upload_zip_reuses_placeholder_parse_cache_by_checksum(self):
+        handbook_id = self._create_handbook()
+        doc = WordDocument()
+        doc.add_paragraph("Firma {{client.name}}")
+        payload = self._create_zip_with_docx("docs/template.docx", doc)
+
+        first_upload = self._upload_zip_bytes(handbook_id, payload)
+        self.assertEqual(first_upload.status_code, 201)
+        self.assertEqual(PlaceholderParseCache.objects.count(), 1)
+
+        second_upload = self._upload_zip_bytes(handbook_id, payload)
+        self.assertEqual(second_upload.status_code, 201)
+        self.assertEqual(PlaceholderParseCache.objects.count(), 1)
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_upload_zip_autofills_from_client_text_and_assets(self):
+        self.customer.logo_url = f"data:image/png;base64,{self.TRANSPARENT_PNG_BASE64}"
+        self.customer.signature_url = f"data:image/png;base64,{self.TRANSPARENT_PNG_BASE64}"
+        self.customer.save(update_fields=["logo_url", "signature_url", "updated_at"])
+
+        handbook_id = self._create_handbook()
+        doc = WordDocument()
+        doc.add_paragraph("{{client.name}}")
+        doc.add_paragraph("{{company.address}}")
+        doc.add_paragraph("{{employee_count}}")
+        doc.add_paragraph("{{assets.logo}}")
+        doc.add_paragraph("{{assets.signature}}")
+        upload_res = self._upload_zip_bytes(
+            handbook_id,
+            self._create_zip_with_docx("docs/template.docx", doc),
+        )
+        self.assertEqual(upload_res.status_code, 201)
+        upload_body = upload_res.json()
+        file_payload = upload_body["files"][0]
+        self.assertEqual(file_payload["placeholder_total"], 5)
+        self.assertEqual(file_payload["placeholder_resolved"], 5)
+
+        file_id = file_payload["id"]
+        placeholders_res = self.client.get(
+            f"/api/v1/handbooks/{handbook_id}/files/{file_id}/placeholders"
+        )
+        self.assertEqual(placeholders_res.status_code, 200)
+        payload = placeholders_res.json()
+        placeholders_by_key = {item["key"]: item for item in payload["placeholders"]}
+
+        self.assertEqual(placeholders_by_key["client.name"]["value_text"], self.customer.name)
+        self.assertEqual(placeholders_by_key["company.address"]["value_text"], self.customer.address)
+        self.assertEqual(
+            placeholders_by_key["employee_count"]["value_text"],
+            str(self.customer.employee_count),
+        )
+        self.assertTrue(placeholders_by_key["assets.logo"]["resolved"])
+        self.assertIsNotNone(placeholders_by_key["assets.logo"]["asset_id"])
+        self.assertTrue(placeholders_by_key["assets.signature"]["resolved"])
+        self.assertIsNotNone(placeholders_by_key["assets.signature"]["asset_id"])
+
+        imported_values = PlaceholderValue.objects.filter(
+            handbook_id=handbook_id,
+            source=PlaceholderValue.Source.IMPORTED,
+        )
+        self.assertTrue(imported_values.exists())
+
+        self.assertEqual(
+            WorkspaceAsset.objects.filter(
+                handbook_id=handbook_id,
+                asset_type=WorkspaceAsset.AssetType.LOGO,
+                deleted_at__isnull=True,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            WorkspaceAsset.objects.filter(
+                handbook_id=handbook_id,
+                asset_type=WorkspaceAsset.AssetType.SIGNATURE,
+                deleted_at__isnull=True,
+            ).count(),
+            1,
+        )
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_autofill_does_not_override_existing_manual_placeholder_values(self):
+        handbook_id = self._create_handbook()
+        doc = WordDocument()
+        doc.add_paragraph("{{client.name}}")
+        upload_res = self._upload_zip_bytes(
+            handbook_id,
+            self._create_zip_with_docx("docs/template.docx", doc),
+        )
+        self.assertEqual(upload_res.status_code, 201)
+        file_id = upload_res.json()["files"][0]["id"]
+
+        save_res = self.client.post(
+            f"/api/v1/handbooks/{handbook_id}/placeholders/save",
+            {
+                "file_id": file_id,
+                "values": [{"key": "client.name", "value_text": "Manual Override"}],
+                "source": "MANUAL",
+            },
+            format="json",
+        )
+        self.assertEqual(save_res.status_code, 200)
+
+        handbook = Handbook.objects.get(id=handbook_id)
+        autofill_placeholders_from_client(handbook=handbook)
+        value = PlaceholderValue.objects.get(handbook=handbook, key="client.name")
+        self.assertEqual(value.value_text, "Manual Override")
+        self.assertEqual(value.source, PlaceholderValue.Source.MANUAL)
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
     def test_export_requires_resolved_placeholders_then_exports(self):
         handbook_id = self._create_handbook()
 
         doc = WordDocument()
         doc.add_paragraph("Firma {{client.name}}")
-        stream = BytesIO()
-        doc.save(stream)
-
-        archive = BytesIO()
-        with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
-            bundle.writestr("docs/template.docx", stream.getvalue())
-
-        upload = SimpleUploadedFile("templates.zip", archive.getvalue(), content_type="application/zip")
-        upload_res = self.client.post(
-            f"/api/v1/handbooks/{handbook_id}/upload-zip",
-            {"file": upload},
-            format="multipart",
+        upload_res = self._upload_zip_bytes(
+            handbook_id,
+            self._create_zip_with_docx("docs/template.docx", doc),
         )
         self.assertEqual(upload_res.status_code, 201)
         file_id = upload_res.json()["files"][0]["id"]
+
+        completion_initial = self.client.get(f"/api/v1/handbooks/{handbook_id}/completion")
+        self.assertEqual(completion_initial.status_code, 200)
+        self.assertEqual(completion_initial.json()["required_total"], 1)
+        self.assertEqual(completion_initial.json()["required_resolved"], 0)
+        self.assertFalse(completion_initial.json()["is_complete_required"])
 
         export_fail = self.client.post(f"/api/v1/handbooks/{handbook_id}/export", {}, format="json")
         self.assertEqual(export_fail.status_code, 400)
@@ -147,12 +287,34 @@ class HandbookApiTests(TestCase):
             format="json",
         )
         self.assertEqual(save_res.status_code, 200)
-        self.assertIn("snapshot", save_res.json())
+        self.assertIsNone(save_res.json().get("snapshot"))
 
-        versions = self.client.get(f"/api/v1/handbooks/{handbook_id}/versions")
-        self.assertEqual(versions.status_code, 200)
-        self.assertEqual(len(versions.json()["versions"]), 1)
-        self.assertFalse(versions.json()["versions"][0]["downloadable"])
+        completion_after_save = self.client.get(f"/api/v1/handbooks/{handbook_id}/completion")
+        self.assertEqual(completion_after_save.status_code, 200)
+        self.assertEqual(completion_after_save.json()["required_total"], 1)
+        self.assertEqual(completion_after_save.json()["required_resolved"], 1)
+        self.assertTrue(completion_after_save.json()["is_complete_required"])
+
+        versions_before_manual = self.client.get(f"/api/v1/handbooks/{handbook_id}/versions")
+        self.assertEqual(versions_before_manual.status_code, 200)
+        self.assertEqual(versions_before_manual.json()["versions"], [])
+
+        manual_create = self.client.post(
+            f"/api/v1/handbooks/{handbook_id}/versions",
+            {"created_by": "test", "reason": "manual_completion"},
+            format="json",
+        )
+        self.assertEqual(manual_create.status_code, 201)
+        self.assertTrue(manual_create.json()["created"])
+        self.assertFalse(manual_create.json()["snapshot"]["downloadable"])
+
+        manual_duplicate = self.client.post(
+            f"/api/v1/handbooks/{handbook_id}/versions",
+            {"created_by": "test", "reason": "manual_completion"},
+            format="json",
+        )
+        self.assertEqual(manual_duplicate.status_code, 200)
+        self.assertFalse(manual_duplicate.json()["created"])
 
         export_ok = self.client.post(f"/api/v1/handbooks/{handbook_id}/export", {}, format="json")
         self.assertEqual(export_ok.status_code, 200)
@@ -176,18 +338,9 @@ class HandbookApiTests(TestCase):
 
         doc = WordDocument()
         doc.add_paragraph("{{client.name}}")
-        stream = BytesIO()
-        doc.save(stream)
-
-        archive = BytesIO()
-        with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
-            bundle.writestr("docs/template.docx", stream.getvalue())
-
-        upload = SimpleUploadedFile("templates.zip", archive.getvalue(), content_type="application/zip")
-        upload_res = self.client.post(
-            f"/api/v1/handbooks/{handbook_id}/upload-zip",
-            {"file": upload},
-            format="multipart",
+        upload_res = self._upload_zip_bytes(
+            handbook_id,
+            self._create_zip_with_docx("docs/template.docx", doc),
         )
         self.assertEqual(upload_res.status_code, 201)
         file_id = upload_res.json()["files"][0]["id"]
@@ -201,6 +354,15 @@ class HandbookApiTests(TestCase):
             format="json",
         )
         self.assertEqual(save_res.status_code, 200)
+        self.assertIsNone(save_res.json().get("snapshot"))
+
+        create_res = self.client.post(
+            f"/api/v1/handbooks/{handbook_id}/versions",
+            {"created_by": "test", "reason": "manual_completion"},
+            format="json",
+        )
+        self.assertEqual(create_res.status_code, 201)
+        self.assertTrue(create_res.json()["created"])
 
         versions = self.client.get(f"/api/v1/handbooks/{handbook_id}/versions").json()["versions"]
         self.assertEqual(len(versions), 1)
@@ -213,3 +375,64 @@ class HandbookApiTests(TestCase):
 
         versions_after = self.client.get(f"/api/v1/handbooks/{handbook_id}/versions").json()["versions"]
         self.assertEqual(versions_after, [])
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_signature_canvas_endpoint_stores_png_and_downloads_same_bytes(self):
+        handbook_id = self._create_handbook()
+        png_bytes = self._transparent_png_bytes()
+        data_url = f"data:image/png;base64,{self.TRANSPARENT_PNG_BASE64}"
+
+        save_res = self._save_signature(handbook_id, data_url)
+        self.assertEqual(save_res.status_code, 201)
+        asset = save_res.json()["asset"]
+        self.assertEqual(asset["asset_type"], "signature")
+
+        stored_path = Path(asset["file_path"])
+        self.assertTrue(stored_path.exists())
+        self.assertEqual(stored_path.read_bytes(), png_bytes)
+
+        download_res = self.client.get(f"/api/v1/handbooks/{handbook_id}/assets/signature/download")
+        self.assertEqual(download_res.status_code, 200)
+        self.assertEqual(download_res["Cache-Control"], "no-store, no-cache, must-revalidate, max-age=0")
+        self.assertEqual(download_res["Pragma"], "no-cache")
+        self.assertEqual(download_res["Expires"], "0")
+        downloaded = b"".join(download_res.streaming_content)
+        self.assertEqual(downloaded, png_bytes)
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_signature_injection_uses_stored_png_bytes(self):
+        handbook_id = self._create_handbook()
+        doc = WordDocument()
+        doc.add_paragraph("{{assets.signature}}")
+
+        upload_res = self._upload_zip_bytes(
+            handbook_id,
+            self._create_zip_with_docx("docs/template.docx", doc),
+        )
+        self.assertEqual(upload_res.status_code, 201)
+
+        save_signature = self._save_signature(
+            handbook_id,
+            f"data:image/png;base64,{self.TRANSPARENT_PNG_BASE64}",
+        )
+        self.assertEqual(save_signature.status_code, 201)
+        signature_bytes = self._transparent_png_bytes()
+
+        completion_res = self.client.get(f"/api/v1/handbooks/{handbook_id}/completion")
+        self.assertEqual(completion_res.status_code, 200)
+        self.assertEqual(completion_res.json()["required_total"], 1)
+        self.assertEqual(completion_res.json()["required_resolved"], 1)
+        self.assertTrue(completion_res.json()["is_complete_required"])
+
+        export_res = self.client.post(f"/api/v1/handbooks/{handbook_id}/export", {}, format="json")
+        self.assertEqual(export_res.status_code, 200)
+        exported_zip_bytes = b"".join(export_res.streaming_content)
+
+        with ZipFile(BytesIO(exported_zip_bytes), "r") as export_archive:
+            rendered_docx = export_archive.read("docs/template.docx")
+
+        with ZipFile(BytesIO(rendered_docx), "r") as doc_archive:
+            media_entries = [name for name in doc_archive.namelist() if name.startswith("word/media/")]
+            self.assertTrue(media_entries)
+            media_payloads = [doc_archive.read(name) for name in media_entries]
+            self.assertIn(signature_bytes, media_payloads)

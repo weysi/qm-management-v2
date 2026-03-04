@@ -46,12 +46,6 @@ export function useUploadDocument(handbookId: string) {
         }
         return Array.from(byId.values());
       });
-      if (process.env.NODE_ENV !== 'production') {
-        console.info('[documents] invalidating upload-linked queries', {
-          handbookId,
-          kind: response.kind,
-        });
-      }
       qc.invalidateQueries({ queryKey: [DOCUMENTS_KEY, handbookId] });
       qc.invalidateQueries({ queryKey: ['files-tree', handbookId] });
       qc.invalidateQueries({ queryKey: ['workspace-assets', handbookId] });

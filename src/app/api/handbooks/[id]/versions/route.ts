@@ -13,3 +13,15 @@ export async function GET(_req: Request, { params }: RouteParams) {
   const data = await safeJson(res);
   return NextResponse.json(data, { status: res.status });
 }
+
+export async function POST(req: Request, { params }: RouteParams) {
+  const { id } = await params;
+  const body = await req.json().catch(() => ({}));
+  const res = await fetchBackend(`/api/v1/handbooks/${encodeURIComponent(id)}/versions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await safeJson(res);
+  return NextResponse.json(data, { status: res.status });
+}
