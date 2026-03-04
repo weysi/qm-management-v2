@@ -6,3 +6,5 @@ export * from './useDocumentTree';
 export * from './useDocumentRender';
 export * from './useDocumentRewrite';
 export * from './useWorkspaceAssets';
+export * from './useAiFillVariable';
+export * from './useHandbookWorkspace';

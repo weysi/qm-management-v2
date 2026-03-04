@@ -48,12 +48,11 @@ export function CreateHandbookDialog({
 	function handleCreate() {
 		if (!pkg) return;
 		setStep('creating');
-		createHandbook.mutate(
-			{
-				clientId: client.id,
-				packageCode: pkg.code,
-				packageVersion: pkg.version,
-			},
+			createHandbook.mutate(
+				{
+					customerId: client.id,
+					type: pkg.code,
+				},
 			{
 				onSuccess(manual) {
 					toast.success('Handbuch erstellt!');

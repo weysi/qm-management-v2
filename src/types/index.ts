@@ -48,6 +48,16 @@ export type {
 } from "@/lib/schemas/document.schema";
 
 export type {
+  HandbookType,
+  HandbookStatus,
+  Handbook,
+  HandbookFile,
+  HandbookTreeNode,
+  HandbookPlaceholder,
+  HandbookSnapshot,
+} from "@/lib/schemas/handbook.schema";
+
+export type {
   CompanyFunctionType,
   CompanyHeadcountRange,
   CompanyProfile,

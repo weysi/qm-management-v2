@@ -35,7 +35,7 @@ export default function ClientDetailPage({ params }: PageProps) {
   const { data: allManuals = [] } = useHandbooks();
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const clientManuals = allManuals.filter((m) => m.clientId === id);
+  const clientManuals = allManuals.filter(m => m.customer_id === id);
 
   if (isLoading) {
     return (
@@ -222,58 +222,6 @@ export default function ClientDetailPage({ params }: PageProps) {
 								</div>
 							</CardContent>
 						</Card>
-
-						{/* Logo & Signature */}
-						{(client.logoUrl || client.signatureUrl) && (
-							<Card className="shadow-sm border-gray-200/60 overflow-hidden">
-								<CardHeader className="border-b border-gray-100 bg-white px-6 py-5">
-									<CardTitle className="text-lg font-semibold flex items-center gap-2 text-gray-900">
-										<FileText className="w-5 h-5 text-gray-400" />
-										Logo &amp; Unterschrift
-									</CardTitle>
-								</CardHeader>
-								<CardContent className="p-6 bg-white">
-									<div className="flex flex-wrap gap-10">
-										{client.logoUrl && (
-											<div className="flex flex-col gap-3">
-												<span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-													Firmenlogo
-												</span>
-												<div
-													className="border border-dashed border-gray-300 rounded-xl p-4 bg-gray-50/80 flex items-center justify-center relative overflow-hidden group"
-													style={{ width: 220, height: 130 }}
-												>
-													{/* eslint-disable-next-line @next/next/no-img-element */}
-													<img
-														src={client.logoUrl}
-														alt="Firmenlogo"
-														className="max-h-full max-w-full object-contain"
-													/>
-												</div>
-											</div>
-										)}
-										{client.signatureUrl && (
-											<div className="flex flex-col gap-3">
-												<span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-													Unterschrift
-												</span>
-												<div
-													className="border border-dashed border-gray-300 rounded-xl p-4 bg-gray-50/80 flex items-center justify-center relative overflow-hidden group"
-													style={{ width: 260, height: 130 }}
-												>
-													{/* eslint-disable-next-line @next/next/no-img-element */}
-													<img
-														src={client.signatureUrl}
-														alt="Unterschrift"
-														className="max-h-full max-w-full object-contain mix-blend-multiply"
-													/>
-												</div>
-											</div>
-										)}
-									</div>
-								</CardContent>
-							</Card>
-						)}
 					</div>
 
 					{/* Right Column: Manuals */}
@@ -317,18 +265,20 @@ export default function ClientDetailPage({ params }: PageProps) {
 									<div className="divide-y divide-gray-100">
 										{clientManuals.map(m => {
 											const statusVariant =
-												m.status === 'complete'
+												m.status === 'READY' || m.status === 'EXPORTED'
 													? 'green'
-													: m.status === 'in_progress'
+													: m.status === 'IN_PROGRESS'
 														? 'orange'
 														: 'gray';
 
 											const statusText =
-												m.status === 'complete'
+												m.status === 'READY'
 													? 'Fertig'
-													: m.status === 'in_progress'
-														? 'In Arbeit'
-														: 'Entwurf';
+													: m.status === 'EXPORTED'
+														? 'Exportiert'
+														: m.status === 'IN_PROGRESS'
+															? 'In Arbeit'
+															: 'Entwurf';
 
 											return (
 												<Link
@@ -338,7 +288,7 @@ export default function ClientDetailPage({ params }: PageProps) {
 												>
 													<div className="flex items-start justify-between mb-2 gap-4">
 														<p className="font-semibold text-sm text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-2">
-															{m.title}
+															{m.type}
 														</p>
 														<Badge
 															variant={statusVariant}
@@ -349,11 +299,11 @@ export default function ClientDetailPage({ params }: PageProps) {
 													</div>
 													<div className="flex items-center text-xs text-gray-500 mt-3 gap-4">
 														<span className="flex items-center gap-1.5 bg-gray-100 px-2 py-1 rounded-md text-gray-600 font-medium">
-															<FileText className="w-3.5 h-3.5" /> v{m.version}
+															<FileText className="w-3.5 h-3.5" /> {m.type}
 														</span>
 														<span className="flex items-center gap-1.5">
 															<Calendar className="w-3.5 h-3.5 text-gray-400" />{' '}
-															{formatDate(m.updatedAt)}
+															{formatDate(m.updated_at)}
 														</span>
 													</div>
 												</Link>

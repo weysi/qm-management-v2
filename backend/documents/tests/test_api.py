@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 import tempfile
+from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZipFile
 import base64
 import hashlib
@@ -471,3 +472,141 @@ class DocumentApiTests(TestCase):
         self.assertEqual(render_res.status_code, 400)
         errors = render_res.json().get("errors", [])
         self.assertTrue(any(err.get("error_code") == "ASSET_INTEGRITY_ERROR" for err in errors))
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_docx_render_preserves_non_placeholder_run_styling(self):
+        handbook_id = "hb-docx-run-style"
+        logo_upload = SimpleUploadedFile("logo.png", self.VALID_PNG, content_type="image/png")
+        self.client.post(
+            f"/api/v1/handbooks/{handbook_id}/assets",
+            {"file": logo_upload, "asset_type": "logo"},
+            format="multipart",
+        )
+
+        doc = WordDocument()
+        paragraph = doc.add_paragraph()
+        before = paragraph.add_run("Before ")
+        before.bold = True
+        paragraph.add_run("{{assets.logo}}")
+        after = paragraph.add_run(" After")
+        after.italic = True
+        stream = BytesIO()
+        doc.save(stream)
+
+        upload = SimpleUploadedFile(
+            "style.docx",
+            stream.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        upload_res = self.client.post(
+            "/api/v1/documents/upload",
+            {"handbook_id": handbook_id, "file": upload},
+            format="multipart",
+        )
+        self.assertEqual(upload_res.status_code, 201)
+
+        document_id = upload_res.json()["document"]["id"]
+        render_res = self.client.post(
+            f"/api/v1/documents/{document_id}/render",
+            {"variables": {}},
+            format="json",
+        )
+        self.assertEqual(render_res.status_code, 200)
+        version = DocumentVersion.objects.get(id=render_res.json()["version"]["id"])
+        rendered = WordDocument(version.file_path)
+        rendered_paragraph = rendered.paragraphs[0]
+        self.assertIn("Before", rendered_paragraph.text)
+        self.assertIn("After", rendered_paragraph.text)
+        self.assertNotIn("assets.logo", rendered_paragraph.text)
+        self.assertTrue(any((run.text or "").startswith("Before") and run.bold for run in rendered_paragraph.runs))
+        self.assertTrue(any((run.text or "").endswith("After") and run.italic for run in rendered_paragraph.runs))
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    @patch("documents.services.variable_fill_service.AiClient.generate_variable_value")
+    def test_ai_fill_variable_success(self, mock_generate):
+        from documents.services.ai_client import VariableValueResponse
+
+        mock_generate.return_value = VariableValueResponse(
+            value="ISO 9001 konformer Beispieltext",
+            model="gpt-4o-mini",
+            usage={"prompt_tokens": 10, "completion_tokens": 8, "total_tokens": 18},
+        )
+
+        res = self.client.post(
+            "/api/v1/handbooks/hb-ai/variables/ai-fill",
+            {
+                "variable_name": "company.scope",
+                "current_value": "",
+                "instruction": "Kurz und präzise formulieren.",
+                "client_context": {"company_name": "Beispiel GmbH"},
+                "language": "de-DE",
+                "constraints": {"max_length": 120, "required": True},
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertEqual(body["value"], "ISO 9001 konformer Beispieltext")
+        self.assertEqual(body["model"], "gpt-4o-mini")
+        self.assertEqual(body["usage"]["total_tokens"], 18)
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_ai_fill_variable_requires_instruction(self):
+        res = self.client.post(
+            "/api/v1/handbooks/hb-ai/variables/ai-fill",
+            {
+                "variable_name": "company.scope",
+                "instruction": "",
+                "client_context": {},
+                "language": "de-DE",
+                "constraints": {"max_length": 120, "required": True},
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json().get("error_code"), "INSTRUCTION_REQUIRED")
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    @patch("documents.services.variable_fill_service.AiClient.generate_variable_value")
+    def test_ai_fill_variable_max_length_hard_fail(self, mock_generate):
+        from documents.services.ai_client import VariableValueResponse
+
+        mock_generate.return_value = VariableValueResponse(
+            value="x" * 25,
+            model="gpt-4o-mini",
+            usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        )
+
+        res = self.client.post(
+            "/api/v1/handbooks/hb-ai/variables/ai-fill",
+            {
+                "variable_name": "company.scope",
+                "instruction": "Kurz",
+                "client_context": {},
+                "language": "de-DE",
+                "constraints": {"max_length": 10, "required": True},
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json().get("error_code"), "MAX_LENGTH_EXCEEDED")
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    @patch("documents.services.variable_fill_service.AiClient.generate_variable_value")
+    def test_ai_fill_variable_maps_provider_error_to_502(self, mock_generate):
+        from documents.services.ai_client import AiClientError
+
+        mock_generate.side_effect = AiClientError("upstream down")
+        res = self.client.post(
+            "/api/v1/handbooks/hb-ai/variables/ai-fill",
+            {
+                "variable_name": "company.scope",
+                "instruction": "Kurz",
+                "client_context": {},
+                "language": "de-DE",
+                "constraints": {"max_length": 120, "required": True},
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 502)
+        self.assertEqual(res.json().get("error_code"), "AI_PROVIDER_ERROR")

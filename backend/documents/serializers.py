@@ -1,8 +1,20 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from rest_framework import serializers
 
-from .models import Document, DocumentVariable, DocumentVersion, WorkspaceAsset
+from .models import (
+    Document,
+    DocumentVariable,
+    DocumentVersion,
+    Handbook,
+    HandbookFile,
+    Placeholder,
+    PlaceholderValue,
+    VersionSnapshot,
+    WorkspaceAsset,
+)
 from .services.asset_service import (
     asset_download_url,
     asset_filename,
@@ -110,3 +122,111 @@ class WorkspaceAssetSerializer(serializers.ModelSerializer):
 
     def get_download_url(self, obj: WorkspaceAsset) -> str:
         return asset_download_url(obj.handbook_id, obj.asset_type)
+
+
+class HandbookSerializer(serializers.ModelSerializer):
+    customer_id = serializers.UUIDField(read_only=True)
+
+    class Meta:
+        model = Handbook
+        fields = [
+            "id",
+            "customer_id",
+            "type",
+            "status",
+            "root_storage_path",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class HandbookFileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HandbookFile
+        fields = [
+            "id",
+            "handbook_id",
+            "path_in_handbook",
+            "file_type",
+            "original_blob_ref",
+            "working_blob_ref",
+            "parse_status",
+            "checksum",
+            "size",
+            "mime",
+            "placeholder_total",
+            "placeholder_resolved",
+            "parse_error",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class PlaceholderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Placeholder
+        fields = [
+            "id",
+            "handbook_file_id",
+            "key",
+            "kind",
+            "required",
+            "occurrences",
+            "meta",
+            "created_at",
+        ]
+
+
+class PlaceholderValueSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PlaceholderValue
+        fields = [
+            "id",
+            "handbook_id",
+            "key",
+            "value_text",
+            "asset_id",
+            "source",
+            "updated_at",
+        ]
+
+
+class VersionSnapshotSerializer(serializers.ModelSerializer):
+    downloadable = serializers.SerializerMethodField()
+    download_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VersionSnapshot
+        fields = [
+            "id",
+            "handbook_id",
+            "version_number",
+            "manifest",
+            "downloadable",
+            "download_url",
+            "created_at",
+        ]
+
+    def get_downloadable(self, obj: VersionSnapshot) -> bool:
+        manifest = obj.manifest if isinstance(obj.manifest, dict) else {}
+        if manifest.get("reason") != "export":
+            return False
+
+        root = Path(obj.handbook.root_storage_path or "")
+        if root.exists():
+            fallback = root / "exports" / f"handbook-{obj.handbook_id}-v{obj.version_number}.zip"
+            if fallback.exists() and fallback.is_file():
+                return True
+
+        export_path = manifest.get("export_zip_path")
+        if not isinstance(export_path, str) or not export_path.strip():
+            return False
+        candidate = Path(export_path)
+        if not candidate.is_absolute():
+            candidate = (root / candidate).resolve()
+        return candidate.exists() and candidate.is_file()
+
+    def get_download_url(self, obj: VersionSnapshot) -> str | None:
+        if not self.get_downloadable(obj):
+            return None
+        return f"/api/v1/handbooks/{obj.handbook_id}/versions/{obj.version_number}/download"

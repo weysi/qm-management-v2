@@ -1,92 +1,86 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Manual } from '@/types';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { z } from 'zod';
+import { HandbookSchema, HandbookTypeSchema, type Handbook } from '@/lib/schemas';
 
-const QUERY_KEY = ['handbooks'] as const;
+const HANDBOOKS_KEY = ['handbooks'] as const;
 
-async function fetchHandbooks(): Promise<Manual[]> {
-	const res = await fetch('/api/handbooks');
-	if (!res.ok) throw new Error('Failed to fetch handbooks');
-	return res.json();
+const HandbookListResponseSchema = z.object({
+  handbooks: z.array(HandbookSchema),
+});
+
+function assertType(type: string) {
+  return HandbookTypeSchema.parse(type);
 }
 
-async function fetchHandbook(id: string): Promise<Manual> {
-	const res = await fetch(`/api/handbooks/${id}`);
-	if (!res.ok) throw new Error('Failed to fetch handbook');
-	return res.json();
+async function fetchHandbooks(customerId?: string): Promise<Handbook[]> {
+  const query = customerId ? `?customer_id=${encodeURIComponent(customerId)}` : '';
+  const res = await fetch(`/api/handbooks${query}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? 'Failed to fetch handbooks');
+  }
+  return HandbookListResponseSchema.parse(data).handbooks;
 }
 
-async function updateHandbookSection(
-	handbookId: string,
-	sectionId: string,
-	content: string,
-): Promise<Manual> {
-	const res = await fetch(`/api/handbooks/${handbookId}`, {
-		method: 'PUT',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ sectionId, content }),
-	});
-	if (!res.ok) throw new Error('Failed to update section');
-	return res.json();
+async function fetchHandbook(id: string): Promise<Handbook> {
+  const res = await fetch(`/api/handbooks/${encodeURIComponent(id)}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? 'Failed to fetch handbook');
+  }
+  return HandbookSchema.parse(data);
 }
 
 interface CreateHandbookPayload {
-	clientId: string;
-	packageCode?: string;
-	packageVersion?: string;
+  customerId: string;
+  type: string;
 }
 
-async function createHandbook(payload: CreateHandbookPayload): Promise<Manual> {
-	const res = await fetch('/api/handbooks', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(payload),
-	});
-	if (!res.ok) {
-		const err = await res.json().catch(() => ({}));
-		throw new Error(
-			(err as { error?: string }).error ?? 'Failed to create handbook',
-		);
-	}
-	return res.json();
+async function createHandbook(payload: CreateHandbookPayload): Promise<Handbook> {
+  const handbookType = assertType(payload.type);
+  const res = await fetch('/api/handbooks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_id: payload.customerId,
+      type: handbookType,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string }).error ?? 'Failed to create handbook');
+  }
+  return HandbookSchema.parse(data);
 }
 
-export function useHandbooks() {
-	return useQuery({ queryKey: QUERY_KEY, queryFn: fetchHandbooks });
+export function useHandbooks(customerId?: string) {
+  return useQuery<Handbook[]>({
+    queryKey: [...HANDBOOKS_KEY, customerId ?? 'all'],
+    queryFn: () => fetchHandbooks(customerId),
+  });
 }
 
 export function useHandbook(id: string) {
-	return useQuery({
-		queryKey: [...QUERY_KEY, id],
-		queryFn: () => fetchHandbook(id),
-		enabled: !!id,
-	});
+  return useQuery<Handbook>({
+    queryKey: [...HANDBOOKS_KEY, id],
+    queryFn: () => fetchHandbook(id),
+    enabled: Boolean(id),
+  });
 }
 
 export function useCreateHandbook() {
-	const qc = useQueryClient();
-	return useMutation({
-		mutationFn: createHandbook,
-		onSuccess: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
-	});
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: createHandbook,
+    onSuccess: created => {
+      qc.invalidateQueries({ queryKey: HANDBOOKS_KEY });
+      qc.invalidateQueries({ queryKey: [...HANDBOOKS_KEY, created.id] });
+      qc.invalidateQueries({ queryKey: [...HANDBOOKS_KEY, created.customer_id] });
+    },
+  });
 }
 
-export function useUpdateHandbookSection(handbookId: string) {
-	const qc = useQueryClient();
-	return useMutation({
-		mutationFn: ({
-			sectionId,
-			content,
-		}: {
-			sectionId: string;
-			content: string;
-		}) => updateHandbookSection(handbookId, sectionId, content),
-		onSuccess: () =>
-			qc.invalidateQueries({ queryKey: [...QUERY_KEY, handbookId] }),
-	});
-}
-
-// ---- Backward-compat aliases (used by existing components) ----
+// Backward-compatible aliases
 export const useManuals = useHandbooks;
 export const useManual = useHandbook;
 export const useCreateManual = useCreateHandbook;
-export const useUpdateManualSection = useUpdateHandbookSection;

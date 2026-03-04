@@ -17,11 +17,36 @@ class AssetValidationError(ValueError):
     pass
 
 
+ALLOWED_ASSET_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
+ALLOWED_ASSET_MIME_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/bmp",
+    "image/gif",
+}
+
+
 def _validate_asset_type(asset_type: str) -> str:
     value = asset_type.strip().lower()
     if value not in {WorkspaceAsset.AssetType.LOGO, WorkspaceAsset.AssetType.SIGNATURE}:
         raise AssetValidationError("asset_type must be logo or signature")
     return value
+
+
+def _validate_asset_format(*, filename: str, mime_type: str) -> tuple[str, str]:
+    ext = Path(filename).suffix.lower()
+    if ext == ".svg" or mime_type.lower() == "image/svg+xml":
+        raise AssetValidationError(
+            "SVG assets are not supported in v1. Please upload PNG/JPG/BMP/GIF."
+        )
+    if ext not in ALLOWED_ASSET_EXTS:
+        raise AssetValidationError("Unsupported asset file type")
+
+    normalized_mime = (mime_type or "").lower().strip() or "application/octet-stream"
+    if normalized_mime not in ALLOWED_ASSET_MIME_TYPES:
+        raise AssetValidationError("Unsupported asset mime type")
+    return ext, normalized_mime
 
 
 def asset_download_url(handbook_id: str, asset_type: str) -> str:
@@ -79,6 +104,7 @@ def save_asset_bytes(
     mime_type: str,
 ) -> WorkspaceAsset:
     normalized_type = _validate_asset_type(asset_type)
+    _ext, normalized_mime = _validate_asset_format(filename=filename, mime_type=mime_type)
     max_bytes = int(getattr(settings, "ASSET_MAX_UPLOAD_BYTES", getattr(settings, "OFFICE_ASSET_MAX_BUFFER_BYTES", 20 * 1024 * 1024)))
     if len(payload) > max_bytes:
         raise AssetValidationError(
@@ -89,7 +115,7 @@ def save_asset_bytes(
     target = (handbook_root(handbook_id) / "assets" / normalized_type / safe_name).resolve()
     LocalStorage().write_bytes(target, payload)
     sha256 = compute_sha256(payload)
-    dimensions = detect_image_dimensions(payload, mime_type or "")
+    dimensions = detect_image_dimensions(payload, normalized_mime)
     width, height = dimensions if dimensions else (None, None)
 
     WorkspaceAsset.objects.filter(
@@ -102,7 +128,7 @@ def save_asset_bytes(
         handbook_id=handbook_id,
         asset_type=normalized_type,
         file_path=str(target),
-        mime_type=mime_type or "application/octet-stream",
+        mime_type=normalized_mime,
         sha256=sha256,
         width=width,
         height=height,

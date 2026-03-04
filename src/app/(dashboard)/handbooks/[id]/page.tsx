@@ -14,103 +14,134 @@ import { FileTree } from '@/components/handbook-wizard/FileTree';
 import { AssetSlotCard } from '@/components/handbook-wizard/AssetSlotCard';
 import { useClient } from '@/hooks/useClients';
 import {
-  useAiRewriteDocument,
+  useAiFillHandbookPlaceholder,
+  useDeleteHandbookVersion,
+  useDownloadHandbookVersion,
   useDeleteWorkspaceAsset,
-  useDeleteFilePath,
-  useDocuments,
-  useFileTree,
+  useExportHandbook,
+  useFilePlaceholders,
   useHandbook,
-  useRenderDocument,
-  useUploadDocument,
+  useHandbookTree,
+  useHandbookVersions,
+  useSaveFilePlaceholders,
+  useUploadHandbookZip,
   useUploadWorkspaceAsset,
   useWorkspaceAssets,
 } from '@/hooks';
-import { ApiRequestError } from '@/lib/documents';
-import type { Document, DocumentVariable } from '@/lib/schemas';
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-function fallbackValueByVariable(variable: string, client: {
+interface FlatFileNode {
+  id: string;
+  path: string;
   name: string;
-  address: string;
-  zipCity: string;
-  ceo: string;
-  qmManager: string;
-  industry: string;
-  products: string;
-  services: string;
-}) {
-  const map: Record<string, string> = {
-    'company.name': client.name,
-    'company.address': client.address,
-    'company.zip_city': client.zipCity,
-    'user.name': client.qmManager,
-    'user.ceo': client.ceo,
-    'company.industry': client.industry,
-    'company.products': client.products,
-    'company.services': client.services,
+  placeholder_total: number;
+  placeholder_resolved: number;
+}
+
+function flattenFileNodes(tree: Array<Record<string, unknown>> | Array<any>): FlatFileNode[] {
+  const out: FlatFileNode[] = [];
+  const walk = (nodes: Array<Record<string, unknown>>) => {
+    for (const node of nodes) {
+      const kind = String(node.kind ?? '');
+      if (kind === 'file' && typeof node.id === 'string' && typeof node.path === 'string') {
+        out.push({
+          id: node.id,
+          path: node.path,
+          name: String(node.name ?? node.path),
+          placeholder_total: Number(node.placeholder_total ?? 0),
+          placeholder_resolved: Number(node.placeholder_resolved ?? 0),
+        });
+      }
+      if (kind === 'folder' && Array.isArray(node.children)) {
+        walk(node.children as Array<Record<string, unknown>>);
+      }
+    }
   };
-  return map[variable] ?? '';
+  walk(tree);
+  return out;
+}
+
+function triggerBrowserDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export default function HandbookPage({ params }: PageProps) {
   const { id } = use(params);
+
   const { data: handbook, isLoading: handbookLoading } = useHandbook(id);
-  const { data: client, isLoading: clientLoading } = useClient(handbook?.clientId ?? '');
-
-  const { data: documents = [], isLoading: docsLoading } = useDocuments(id);
-  const {
-    data: tree = [],
-    isLoading: treeLoading,
-    isError: treeIsError,
-    error: treeError,
-  } = useFileTree(id);
+  const { data: client, isLoading: clientLoading } = useClient(handbook?.customer_id ?? '');
+  const { data: treeResponse = [], isLoading: treeLoading } = useHandbookTree(id);
   const { data: assets = [] } = useWorkspaceAssets(id);
+  const { data: versions = [] } = useHandbookVersions(id);
 
-  const uploadDocument = useUploadDocument(id);
-  const deletePath = useDeleteFilePath(id);
-  const renderDocument = useRenderDocument(id);
-  const rewriteDocument = useAiRewriteDocument(id);
+  const uploadZip = useUploadHandbookZip(id);
   const uploadAsset = useUploadWorkspaceAsset(id);
   const deleteAsset = useDeleteWorkspaceAsset(id);
+  const savePlaceholders = useSaveFilePlaceholders(id);
+  const aiFill = useAiFillHandbookPlaceholder(id);
+  const deleteVersion = useDeleteHandbookVersion(id);
+  const downloadVersion = useDownloadHandbookVersion(id);
+  const exportHandbook = useExportHandbook(id);
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [selectedVersionNumber, setSelectedVersionNumber] = useState<number | null>(null);
+  const [aiInstruction, setAiInstruction] = useState('');
+  const [aiLanguage, setAiLanguage] = useState<'de-DE' | 'en-US'>('de-DE');
   const [variableValues, setVariableValues] = useState<Record<string, string>>({});
-  const [renderErrors, setRenderErrors] = useState<
-    Array<{ message: string; variable?: string | null }>
-  >([]);
-  const [rewriteInstruction, setRewriteInstruction] = useState('');
 
-  const selectedDocument = useMemo<Document | null>(() => {
-    if (!selectedPath) return null;
-    return documents.find(item => item.relative_path === selectedPath) ?? null;
-  }, [documents, selectedPath]);
+  const flatFiles = useMemo(() => flattenFileNodes(treeResponse), [treeResponse]);
+  const totalPlaceholders = flatFiles.reduce((sum, item) => sum + item.placeholder_total, 0);
+  const resolvedPlaceholders = flatFiles.reduce((sum, item) => sum + item.placeholder_resolved, 0);
+  const allComplete = totalPlaceholders === 0 || resolvedPlaceholders === totalPlaceholders;
 
-  const editableVariables = useMemo<DocumentVariable[]>(() => {
-    if (!selectedDocument) return [];
-    return selectedDocument.variables.filter(variable => variable.source === 'user_input');
-  }, [selectedDocument]);
+  const selectedFile = useMemo(
+    () => flatFiles.find(file => file.id === selectedFileId) ?? null,
+    [flatFiles, selectedFileId],
+  );
+  const selectedVersion = useMemo(
+    () => versions.find(version => version.version_number === selectedVersionNumber) ?? null,
+    [versions, selectedVersionNumber],
+  );
 
-  const systemVariables = useMemo<DocumentVariable[]>(() => {
-    if (!selectedDocument) return [];
-    return selectedDocument.variables.filter(variable => variable.source === 'system');
-  }, [selectedDocument]);
+  const { data: fileData, isLoading: placeholdersLoading } = useFilePlaceholders(id, selectedFileId);
+
+  const textPlaceholders = useMemo(
+    () => (fileData?.placeholders ?? []).filter(item => item.kind === 'TEXT'),
+    [fileData],
+  );
+  const assetPlaceholders = useMemo(
+    () => (fileData?.placeholders ?? []).filter(item => item.kind === 'ASSET'),
+    [fileData],
+  );
 
   useEffect(() => {
-    if (!selectedDocument || !client) {
-      setVariableValues({});
-      return;
-    }
-
+    if (!fileData) return;
     const next: Record<string, string> = {};
-    for (const item of editableVariables) {
-      next[item.variable_name] = fallbackValueByVariable(item.variable_name, client);
+    for (const placeholder of fileData.placeholders) {
+      if (placeholder.kind !== 'TEXT') continue;
+      next[placeholder.key] = placeholder.value_text ?? '';
     }
     setVariableValues(next);
-    setRenderErrors([]);
-  }, [selectedDocument, client, editableVariables]);
+  }, [fileData]);
+
+  useEffect(() => {
+    if (selectedVersionNumber === null) return;
+    const stillPresent = versions.some(version => version.version_number === selectedVersionNumber);
+    if (!stillPresent) {
+      setSelectedVersionNumber(null);
+    }
+  }, [selectedVersionNumber, versions]);
 
   if (handbookLoading || clientLoading) {
     return (
@@ -124,45 +155,35 @@ export default function HandbookPage({ params }: PageProps) {
     return <div className="p-8 text-gray-500">Handbuch nicht gefunden.</div>;
   }
 
-  async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
-    const list = event.target.files;
-    if (!list || list.length === 0) return;
+  async function handleUploadZip(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-    let success = 0;
-    let failed = 0;
-
-    for (const file of Array.from(list)) {
-      const relPath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
-      const path = typeof relPath === 'string' && relPath.trim() ? relPath : file.name;
-      try {
-        const response = await uploadDocument.mutateAsync({ file, path });
-        success += 1;
-        if (response.kind === 'zip') {
-          const { documents_created, assets_bound, warnings } = response.summary;
-          toast.success(
-            `ZIP verarbeitet: ${documents_created} Dokument(e), ${assets_bound} Asset(s)`,
-          );
-          if (warnings > 0) {
-            toast.warning(`${warnings} Eintrag/Einträge im ZIP wurden übersprungen.`);
-          }
-        }
-      } catch (err) {
-        failed += 1;
-        toast.error(err instanceof Error ? err.message : 'Upload fehlgeschlagen');
+    try {
+      const result = await uploadZip.mutateAsync(file);
+      toast.success(`ZIP verarbeitet: ${result.summary.files_total} Dateien`);
+      if (result.warnings.length > 0) {
+        toast.warning(`${result.warnings.length} ZIP-Eintraege wurden uebersprungen.`);
       }
-    }
 
-    if (success > 0) toast.success(`${success} Datei(en) hochgeladen`);
-    if (failed > 0) toast.error(`${failed} Datei(en) fehlgeschlagen`);
-    event.target.value = '';
+      const parsedFile = result.files.find(item => item.parse_status !== 'FAILED');
+      if (parsedFile) {
+        setSelectedFileId(parsedFile.id);
+        setSelectedPath(parsedFile.path_in_handbook);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'ZIP Upload fehlgeschlagen');
+    } finally {
+      event.target.value = '';
+    }
   }
 
   async function handleUploadAsset(file: File, assetType: 'logo' | 'signature') {
     try {
       await uploadAsset.mutateAsync({ file, assetType });
       toast.success(`${assetType === 'logo' ? 'Logo' : 'Signatur'} gespeichert`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Asset Upload fehlgeschlagen');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Asset Upload fehlgeschlagen');
     }
   }
 
@@ -170,88 +191,127 @@ export default function HandbookPage({ params }: PageProps) {
     try {
       await deleteAsset.mutateAsync({ assetType });
       toast.success(`${assetType === 'logo' ? 'Logo' : 'Signatur'} entfernt`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Asset konnte nicht entfernt werden');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Asset loeschen fehlgeschlagen');
     }
   }
 
-  async function handleRender() {
-    if (!selectedDocument) {
-      toast.error('Bitte zuerst ein Dokument auswählen');
+  function selectFileByPath(path: string) {
+    setSelectedPath(path);
+    const selected = flatFiles.find(item => item.path === path);
+    setSelectedFileId(selected?.id ?? null);
+  }
+
+  async function handleAiFill(key: string, required: boolean) {
+    if (!client || !handbook) {
+      toast.error('Handbuch- oder Kundendaten nicht geladen');
+      return;
+    }
+    if (!selectedFileId || !selectedFile) {
+      toast.error('Bitte zuerst eine Datei auswaehlen');
+      return;
+    }
+    if (!aiInstruction.trim()) {
+      toast.error('Bitte globale AI-Anweisung ausfuellen');
       return;
     }
 
     try {
-      const result = await renderDocument.mutateAsync({
-        documentId: selectedDocument.id,
-        variables: variableValues,
+      const result = await aiFill.mutateAsync({
+        fileId: selectedFileId,
+        placeholderKey: key,
+        currentValue: variableValues[key] ?? '',
+        instruction: aiInstruction,
+        language: aiLanguage,
+        context: {
+          customer: {
+            name: client.name,
+            address: client.address,
+            zip_city: client.zipCity,
+            ceo: client.ceo,
+            qm_manager: client.qmManager,
+            industry: client.industry,
+            products: client.products,
+            services: client.services,
+          },
+          handbook_type: handbook.type,
+          file_path: selectedFile.path,
+        },
+        constraints: {
+          max_length: 800,
+          required,
+        },
       });
-      setRenderErrors([]);
-      toast.success(`Version v${result.version.version_number} erstellt`);
-    } catch (err) {
-      if (err instanceof ApiRequestError) {
-        const details = err.details as { errors?: Array<{ message?: string; variable?: string | null }> };
-        if (Array.isArray(details.errors) && details.errors.length > 0) {
-          setRenderErrors(
-            details.errors.map(item => ({
-              message: item.message ?? err.message,
-              variable: item.variable ?? null,
-            })),
-          );
-        } else {
-          setRenderErrors([{ message: err.message }]);
-        }
+
+      setVariableValues(prev => ({ ...prev, [key]: result.value }));
+      toast.success(`AI-Wert fuer ${key} aktualisiert`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'AI Fill fehlgeschlagen');
+    }
+  }
+
+  async function handleSavePlaceholders() {
+    if (!selectedFileId) {
+      toast.error('Bitte zuerst eine Datei auswaehlen');
+      return;
+    }
+
+    try {
+      const values = textPlaceholders.map(item => ({
+        key: item.key,
+        value_text: variableValues[item.key] ?? '',
+      }));
+      await savePlaceholders.mutateAsync({ fileId: selectedFileId, values, source: 'MANUAL' });
+      toast.success('Platzhalter gespeichert und Snapshot erstellt');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Speichern fehlgeschlagen');
+    }
+  }
+
+  async function handleExport() {
+    try {
+      const result = await exportHandbook.mutateAsync();
+      triggerBrowserDownload(result.blob, result.filename);
+      toast.success('Export erfolgreich erstellt');
+    } catch (error) {
+      const details = (error as Error & { details?: { errors?: Array<{ message?: string }> } }).details;
+      if (details && Array.isArray(details.errors) && details.errors.length > 0) {
+        toast.error(details.errors[0].message ?? 'Export blockiert: Pflichtwerte fehlen');
       } else {
-        const message = err instanceof Error ? err.message : 'Render fehlgeschlagen';
-        setRenderErrors([{ message }]);
+        toast.error(error instanceof Error ? error.message : 'Export fehlgeschlagen');
       }
-
-      const message = err instanceof Error ? err.message : 'Render fehlgeschlagen';
-      toast.error(message);
     }
   }
 
-  async function handleRewrite() {
-    if (!selectedDocument) {
-      toast.error('Bitte zuerst ein Dokument auswählen');
+  async function handleDeleteVersion(versionNumber: number) {
+    if (!confirm(`Version ${versionNumber} loeschen?`)) return;
+    try {
+      await deleteVersion.mutateAsync(versionNumber);
+      if (selectedVersionNumber === versionNumber) {
+        setSelectedVersionNumber(null);
+      }
+      toast.success(`Version ${versionNumber} geloescht`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Version loeschen fehlgeschlagen');
+    }
+  }
+
+  async function handleDownloadSelectedVersion() {
+    if (!selectedVersionNumber) {
+      toast.error('Bitte zuerst eine Version auswaehlen');
       return;
     }
-    if (!rewriteInstruction.trim()) {
-      toast.error('Bitte Anweisung eingeben');
+    if (!selectedVersion?.downloadable) {
+      toast.error('Die ausgewaehlte Version ist nicht downloadbar');
       return;
     }
 
     try {
-      const result = await rewriteDocument.mutateAsync({
-        documentId: selectedDocument.id,
-        instruction: rewriteInstruction.trim(),
-      });
-      toast.success(`AI-Version v${result.version.version_number} erstellt`);
-      setRewriteInstruction('');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'AI-Rewrite fehlgeschlagen');
-    }
-  }
-
-  async function handleDeleteFile(path: string) {
-    if (!confirm(`Datei löschen: ${path}?`)) return;
-    try {
-      await deletePath.mutateAsync({ path, recursive: false });
-      if (selectedPath === path) setSelectedPath(null);
-      toast.success('Datei entfernt');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Löschen fehlgeschlagen');
-    }
-  }
-
-  async function handleDeleteFolder(path: string) {
-    if (!confirm(`Ordner inkl. Unterdateien löschen: ${path}?`)) return;
-    try {
-      await deletePath.mutateAsync({ path, recursive: true });
-      if (selectedPath?.startsWith(`${path}/`)) setSelectedPath(null);
-      toast.success('Ordner entfernt');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Ordner löschen fehlgeschlagen');
+      const result = await downloadVersion.mutateAsync(selectedVersionNumber);
+      triggerBrowserDownload(result.blob, result.filename);
+      toast.success(`Version v${selectedVersionNumber} heruntergeladen`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Version Download fehlgeschlagen');
     }
   }
 
@@ -261,9 +321,9 @@ export default function HandbookPage({ params }: PageProps) {
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       <Header
-        title={handbook.title}
-        subtitle={`v${handbook.version} · ${client.name}`}
-        actions={<Badge variant="blue">{documents.length} Dokumente</Badge>}
+        title={`${handbook.type} Handbuch`}
+        subtitle={`${client.name} · ${resolvedPlaceholders}/${totalPlaceholders} Platzhalter geloest`}
+        actions={<Badge variant="blue">{handbook.status}</Badge>}
       />
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
@@ -271,18 +331,17 @@ export default function HandbookPage({ params }: PageProps) {
           <div className="col-span-2 space-y-4">
             <Card>
               <CardHeader>
-                <h3 className="text-sm font-semibold text-gray-900">Dokument Upload</h3>
+                <h3 className="text-sm font-semibold text-gray-900">ZIP Upload</h3>
               </CardHeader>
               <CardContent>
                 <input
                   type="file"
-                  multiple
                   className="block w-full text-sm"
-                  accept=".docx,.pptx,.xlsx,.md,.txt,.html,.htm,.zip"
-                  onChange={handleUpload}
+                  accept=".zip"
+                  onChange={handleUploadZip}
                 />
                 <p className="mt-2 text-xs text-gray-500">
-                  Unterstützt: DOCX, PPTX, XLSX, MD, TXT, HTML, ZIP. Legacy DOC wird in v1 abgelehnt.
+                  Lade genau ein ZIP mit Vorlagen (DOCX/PPTX/XLSX) und Assets hoch.
                 </p>
               </CardContent>
             </Card>
@@ -292,147 +351,117 @@ export default function HandbookPage({ params }: PageProps) {
                 <h3 className="text-sm font-semibold text-gray-900">Dateibaum</h3>
               </CardHeader>
               <CardContent>
-                {treeLoading || docsLoading ? (
+                {treeLoading ? (
                   <div className="flex justify-center py-8">
                     <Spinner />
                   </div>
-                ) : treeIsError ? (
-                  <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                    <p className="font-medium">Dateibaum konnte nicht geladen werden.</p>
-                    <p className="mt-1 text-xs">
-                      {treeError instanceof Error ? treeError.message : 'Unbekannter Fehler'}
-                    </p>
-                  </div>
                 ) : (
                   <FileTree
-                    nodes={tree}
+                    nodes={treeResponse as any}
                     selectedPath={selectedPath}
-                    onSelectFile={setSelectedPath}
-                    onDeleteFile={handleDeleteFile}
-                    onDeleteFolder={handleDeleteFolder}
+                    onSelectFile={selectFileByPath}
                   />
                 )}
               </CardContent>
             </Card>
 
-            {selectedDocument && (
+            {selectedFile && (
               <Card>
                 <CardHeader>
-                  <h3 className="text-sm font-semibold text-gray-900">
-                    {selectedDocument.name}
-                  </h3>
-                  <p className="text-xs text-gray-500">{selectedDocument.relative_path}</p>
+                  <h3 className="text-sm font-semibold text-gray-900">{selectedFile.name}</h3>
+                  <p className="text-xs text-gray-500">{selectedFile.path}</p>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-semibold text-gray-700">Variablen</h4>
-                    {editableVariables.length === 0 ? (
-                      <p className="text-xs text-gray-500">Keine editierbaren Variablen gefunden.</p>
-                    ) : (
-                      <div className="grid grid-cols-1 gap-2">
-                        {editableVariables.map(item => (
-                          <div key={item.id} className="space-y-1">
-                            <Label className="text-xs">
-                              {item.variable_name}
-                              {item.required ? ' *' : ' (optional)'}
-                            </Label>
-                            <Input
-                              value={variableValues[item.variable_name] ?? ''}
-                              onChange={event =>
-                                setVariableValues(prev => ({
-                                  ...prev,
-                                  [item.variable_name]: event.target.value,
-                                }))
-                              }
-                              placeholder={item.variable_name}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {systemVariables.length > 0 && (
-                      <div className="rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700">
-                        <p className="font-semibold text-gray-800">Systemvariablen</p>
-                      <div className="mt-1 space-y-1">
-                        {systemVariables.map(item => (
-                          <div key={item.id} className="flex items-center justify-between gap-2">
-                            <p>
-                              {item.variable_name}
-                              {item.required ? ' *' : ''}
-                            </p>
-                            {item.variable_name === 'assets.logo' && (
-                              <Badge variant="gray">Alias: [LOGO]</Badge>
-                            )}
-                            {item.variable_name === 'assets.signature' && (
-                              <Badge variant="gray">Alias: [SIGNATURE]</Badge>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                    {renderErrors.length > 0 && (
-                      <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-                        {renderErrors.map((item, idx) => (
-                          <p key={idx}>
-                            {item.variable ? `${item.variable}: ` : ''}
-                            {item.message}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                    <Button
-                      size="sm"
-                      onClick={handleRender}
-                      loading={renderDocument.isPending}
-                    >
-                      Rendern
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-semibold text-gray-700">AI: Modify Content</h4>
+                  <div className="space-y-2 rounded border border-gray-200 bg-gray-50 p-3">
+                    <Label className="text-xs">Globale AI-Anweisung</Label>
                     <Textarea
-                      rows={4}
-                      value={rewriteInstruction}
-                      onChange={event => setRewriteInstruction(event.target.value)}
-                      placeholder="Beispiel: Kürze den Text, formeller Ton, Deutsch beibehalten."
+                      rows={3}
+                      value={aiInstruction}
+                      onChange={event => setAiInstruction(event.target.value)}
+                      placeholder="Beispiel: Formuliere ISO/SCC-konform, praezise und sachlich."
                     />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleRewrite}
-                      loading={rewriteDocument.isPending}
-                    >
-                      AI Rewrite
-                    </Button>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-semibold text-gray-700">Versionen</h4>
-                    <div className="space-y-1">
-                      {[...selectedDocument.versions]
-                        .sort((a, b) => b.version_number - a.version_number)
-                        .map(version => (
-                          <div
-                            key={version.id}
-                            className="flex items-center justify-between rounded border border-gray-100 px-2 py-1.5 text-xs"
-                          >
-                            <span>
-                              v{version.version_number} · {version.created_by}
-                            </span>
-                            <a
-                              href={`/api/documents/${selectedDocument.id}/download?version=${version.version_number}`}
-                              className="text-blue-600 hover:underline"
-                            >
-                              Download
-                            </a>
-                          </div>
-                        ))}
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs">Sprache</Label>
+                      <select
+                        value={aiLanguage}
+                        onChange={event => setAiLanguage(event.target.value as 'de-DE' | 'en-US')}
+                        className="h-8 rounded border border-gray-200 bg-white px-2 text-xs"
+                      >
+                        <option value="de-DE">Deutsch (de-DE)</option>
+                        <option value="en-US">English (en-US)</option>
+                      </select>
                     </div>
                   </div>
+
+                  {placeholdersLoading ? (
+                    <div className="flex justify-center py-8">
+                      <Spinner />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-semibold text-gray-700">Text-Platzhalter</h4>
+                        {textPlaceholders.length === 0 ? (
+                          <p className="text-xs text-gray-500">Keine Text-Platzhalter in dieser Datei.</p>
+                        ) : (
+                          textPlaceholders.map(item => (
+                            <div key={item.id} className="space-y-1">
+                              <Label className="text-xs">
+                                {item.key}
+                                {item.required ? ' *' : ' (optional)'}
+                              </Label>
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  value={variableValues[item.key] ?? ''}
+                                  onChange={event =>
+                                    setVariableValues(prev => ({
+                                      ...prev,
+                                      [item.key]: event.target.value,
+                                    }))
+                                  }
+                                />
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  loading={aiFill.isPending}
+                                  onClick={() => void handleAiFill(item.key, Boolean(item.required))}
+                                >
+                                  AI
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-semibold text-gray-700">Asset-Platzhalter</h4>
+                        {assetPlaceholders.length === 0 ? (
+                          <p className="text-xs text-gray-500">Keine Asset-Platzhalter in dieser Datei.</p>
+                        ) : (
+                          <div className="rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700 space-y-1">
+                            {assetPlaceholders.map(item => (
+                              <p key={item.id}>
+                                {item.key}
+                                {item.required ? ' *' : ''} · {item.resolved ? 'geloest' : 'offen'}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Button onClick={handleSavePlaceholders} loading={savePlaceholders.isPending}>
+                          Platzhalter speichern
+                        </Button>
+                        {fileData?.completion && (
+                          <Badge variant={fileData.completion.is_complete ? 'green' : 'orange'}>
+                            Datei: {fileData.completion.resolved}/{fileData.completion.total}
+                          </Badge>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -448,7 +477,7 @@ export default function HandbookPage({ params }: PageProps) {
                   title="Logo"
                   assetType="logo"
                   canonicalKey="assets.logo"
-                  aliases={['__ASSET_LOGO__', '[LOGO]', '{{assets.logo}}']}
+                  aliases={['{{assets.logo}}', '__ASSET_LOGO__', '[LOGO]']}
                   asset={logoAsset}
                   busy={uploadAsset.isPending || deleteAsset.isPending}
                   onUpload={handleUploadAsset}
@@ -458,7 +487,7 @@ export default function HandbookPage({ params }: PageProps) {
                   title="Signatur"
                   assetType="signature"
                   canonicalKey="assets.signature"
-                  aliases={['__ASSET_SIGNATURE__', '[SIGNATURE]', '{{assets.signature}}']}
+                  aliases={['{{assets.signature}}', '__ASSET_SIGNATURE__', '[SIGNATURE]']}
                   asset={signatureAsset}
                   busy={uploadAsset.isPending || deleteAsset.isPending}
                   onUpload={handleUploadAsset}
@@ -469,13 +498,72 @@ export default function HandbookPage({ params }: PageProps) {
 
             <Card>
               <CardHeader>
-                <h3 className="text-sm font-semibold text-gray-900">Kundendaten</h3>
+                <h3 className="text-sm font-semibold text-gray-900">Fortschritt</h3>
               </CardHeader>
-              <CardContent className="space-y-1 text-xs text-gray-700">
-                <p>Firma: {client.name}</p>
-                <p>Branche: {client.industry}</p>
-                <p>GF: {client.ceo}</p>
-                <p>QM: {client.qmManager}</p>
+              <CardContent className="space-y-3 text-xs">
+                <p>
+                  Gesamt: <strong>{resolvedPlaceholders}</strong> / <strong>{totalPlaceholders}</strong>
+                </p>
+                <Button onClick={handleExport} loading={exportHandbook.isPending} disabled={!allComplete}>
+                  Export ZIP
+                </Button>
+                {!allComplete && (
+                  <p className="text-amber-700">Export ist erst moeglich, wenn alle Pflicht-Platzhalter geloest sind.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <h3 className="text-sm font-semibold text-gray-900">Versionen</h3>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!selectedVersion?.downloadable}
+                  loading={downloadVersion.isPending}
+                  onClick={handleDownloadSelectedVersion}
+                >
+                  Ausgewaehlte Version herunterladen
+                </Button>
+                {versions.length === 0 ? (
+                  <p className="text-xs text-gray-500">Keine Snapshots vorhanden.</p>
+                ) : (
+                  versions.map(version => (
+                    <div
+                      key={version.id}
+                      className="flex items-center justify-between rounded border border-gray-100 px-2 py-1.5 text-xs"
+                    >
+                      <label className="flex min-w-0 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedVersionNumber === version.version_number}
+                          onChange={event =>
+                            setSelectedVersionNumber(
+                              event.target.checked ? version.version_number : null,
+                            )
+                          }
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                        />
+                        <span>v{version.version_number}</span>
+                        <Badge variant={version.downloadable ? 'green' : 'gray'}>
+                          {version.downloadable ? 'downloadbar' : 'nicht downloadbar'}
+                        </Badge>
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-red-600"
+                          onClick={() => void handleDeleteVersion(version.version_number)}
+                        >
+                          Loeschen
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </CardContent>
             </Card>
           </div>

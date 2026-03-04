@@ -1,65 +1,58 @@
-import { NextResponse } from 'next/server';
-import { randomUUID } from 'crypto';
-import { store } from '@/lib/store';
-import { isoManualSections } from '@/lib/mock-data/manual-template';
+import { NextRequest, NextResponse } from 'next/server';
 import { fetchBackend, safeJson } from '@/lib/backend-api';
-import type { Client } from '@/lib/schemas';
 
-export async function GET() {
-	return NextResponse.json(store.manuals);
+export const runtime = 'nodejs';
+
+const TYPE_ALIASES: Record<string, string> = {
+  ISO9001: 'ISO9001',
+  ISO14001: 'ISO14001',
+  ISO45001: 'ISO45001',
+  'SCC*': 'SCC_STAR',
+  SCC_STAR: 'SCC_STAR',
+  'SCC**': 'SCC_DOUBLESTAR',
+  SCC_DOUBLESTAR: 'SCC_DOUBLESTAR',
+  SCCP: 'SCCP',
+  SCP: 'SCP',
+};
+
+function normalizeType(input: unknown): string {
+  const raw = String(input ?? '').trim();
+  return TYPE_ALIASES[raw] ?? raw;
+}
+
+export async function GET(req: NextRequest) {
+  const customerId =
+    req.nextUrl.searchParams.get('customer_id') ??
+    req.nextUrl.searchParams.get('clientId') ??
+    '';
+
+  const query = customerId ? `?customer_id=${encodeURIComponent(customerId)}` : '';
+  const res = await fetchBackend(`/api/v1/handbooks${query}`);
+  const data = await safeJson(res);
+  return NextResponse.json(data, { status: res.status });
 }
 
 export async function POST(req: Request) {
-	const body = await req.json();
-	const { clientId, packageCode, packageVersion } = body as {
-		clientId: string;
-		packageCode?: string;
-		packageVersion?: string;
-	};
+  const body = await req.json().catch(() => ({}));
+  const customerId = String(
+    (body as { customer_id?: string; clientId?: string }).customer_id ??
+      (body as { customer_id?: string; clientId?: string }).clientId ??
+      '',
+  ).trim();
 
-	// Look up client in local store first; if missing (e.g. after a server
-	// restart the in-memory store is empty) fetch from Django and cache it.
-	let client = store.clients.find(c => c.id === clientId);
-	if (!client) {
-		try {
-			const res = await fetchBackend(
-				`/api/v1/clients/${encodeURIComponent(clientId)}/`,
-			);
-			if (res.ok) {
-				client = (await safeJson(res)) as Client;
-				store.clients.push(client);
-			}
-		} catch {
-			// Django unreachable — client genuinely not found
-		}
-	}
-	if (!client) {
-		return NextResponse.json({ error: 'Client not found' }, { status: 404 });
-	}
+  const type = normalizeType(
+    (body as { type?: string; packageCode?: string }).type ??
+      (body as { type?: string; packageCode?: string }).packageCode,
+  );
 
-	const handbookId = randomUUID();
-	const now = new Date().toISOString();
-
-	const handbook = {
-		id: handbookId,
-		clientId,
-		title: `Qualitätsmanagementhandbuch – ${client.name}`,
-		version: '1.0',
-		status: 'draft' as const,
-		sections: isoManualSections.map((s, i) => ({
-			...s,
-			id: `${handbookId}-section-${i}`,
-		})),
-		createdAt: now,
-		updatedAt: now,
-	};
-
-	store.manuals.push(handbook);
-
-	// packageCode/packageVersion are accepted for compatibility, but the
-	// document pipeline does not initialize backend package workflows here.
-	void packageCode;
-	void packageVersion;
-
-	return NextResponse.json(handbook, { status: 201 });
+  const res = await fetchBackend('/api/v1/handbooks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      customer_id: customerId,
+      type,
+    }),
+  });
+  const data = await safeJson(res);
+  return NextResponse.json(data, { status: res.status });
 }

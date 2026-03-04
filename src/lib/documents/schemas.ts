@@ -101,6 +101,18 @@ export const UploadAssetResponseSchema = z.object({
   asset: WorkspaceAssetSchema,
 });
 
+export const AiFillVariableUsageSchema = z.object({
+  prompt_tokens: z.number().int().nonnegative(),
+  completion_tokens: z.number().int().nonnegative(),
+  total_tokens: z.number().int().nonnegative(),
+});
+
+export const AiFillVariableResponseSchema = z.object({
+  value: z.string(),
+  model: z.string(),
+  usage: AiFillVariableUsageSchema,
+});
+
 export type UploadDocumentResponse = z.infer<typeof UploadDocumentResponseSchema>;
 export type ListDocumentsResponse = z.infer<typeof ListDocumentsResponseSchema>;
 export type RenderDocumentResponse = z.infer<typeof RenderDocumentResponseSchema>;
@@ -109,4 +121,5 @@ export type TreeResponse = z.infer<typeof TreeResponseSchema>;
 export type DeletePathResponse = z.infer<typeof DeletePathResponseSchema>;
 export type ListAssetsResponse = z.infer<typeof ListAssetsResponseSchema>;
 export type UploadAssetResponse = z.infer<typeof UploadAssetResponseSchema>;
+export type AiFillVariableResponse = z.infer<typeof AiFillVariableResponseSchema>;
 export type ApiValidationError = z.infer<typeof ApiValidationErrorSchema>;

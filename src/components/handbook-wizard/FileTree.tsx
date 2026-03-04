@@ -1,9 +1,18 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { FileTreeNode } from '@/lib/schemas';
+
+interface FileTreeNode {
+  id?: string;
+  name: string;
+  path: string;
+  kind: 'folder' | 'file';
+  children?: FileTreeNode[];
+  placeholder_total?: number;
+  placeholder_resolved?: number;
+}
 
 interface FileTreeProps {
   nodes: FileTreeNode[];
@@ -67,6 +76,7 @@ function TreeRow({
   depth,
   expanded,
   setExpanded,
+  progressByPath,
   selectedPath,
   onSelectFile,
   onDeleteFile,
@@ -76,6 +86,7 @@ function TreeRow({
   depth: number;
   expanded: Set<string>;
   setExpanded: (path: string, next: boolean) => void;
+  progressByPath: Map<string, { total: number; resolved: number }>;
   selectedPath?: string | null;
   onSelectFile?: (path: string) => void;
   onDeleteFile?: (path: string) => void;
@@ -83,6 +94,8 @@ function TreeRow({
 }) {
   const isFolder = node.kind === 'folder';
   const open = expanded.has(node.path);
+  const progress = progressByPath.get(node.path) ?? { total: 0, resolved: 0 };
+  const showProgress = progress.total > 0;
 
   return (
     <div>
@@ -109,7 +122,7 @@ function TreeRow({
         <button
           type="button"
           className={cn(
-            'flex-1 truncate text-left',
+            'flex flex-1 min-w-0 items-center justify-between gap-2 text-left',
             isFolder ? 'font-medium text-gray-800' : 'text-gray-700',
           )}
           onClick={() => {
@@ -120,7 +133,12 @@ function TreeRow({
             onSelectFile?.(node.path);
           }}
         >
-          {node.name}
+          <span className="truncate">{node.name}</span>
+          {showProgress && (
+            <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-700">
+              {progress.resolved}/{progress.total}
+            </span>
+          )}
         </button>
 
         {!isFolder && onDeleteFile && (
@@ -155,6 +173,7 @@ function TreeRow({
               depth={depth + 1}
               expanded={expanded}
               setExpanded={setExpanded}
+              progressByPath={progressByPath}
               selectedPath={selectedPath}
               onSelectFile={onSelectFile}
               onDeleteFile={onDeleteFile}
@@ -184,7 +203,42 @@ export function FileTree({
     return set;
   }, [nodes]);
 
+  const progressByPath = useMemo(() => {
+    const map = new Map<string, { total: number; resolved: number }>();
+
+    const walk = (node: FileTreeNode): { total: number; resolved: number } => {
+      if (node.kind === 'file') {
+        const total = Math.max(0, Number(node.placeholder_total ?? 0));
+        const resolved = Math.max(0, Number(node.placeholder_resolved ?? 0));
+        const progress = { total, resolved };
+        map.set(node.path, progress);
+        return progress;
+      }
+
+      let total = 0;
+      let resolved = 0;
+      for (const child of node.children ?? []) {
+        const childProgress = walk(child);
+        total += childProgress.total;
+        resolved += childProgress.resolved;
+      }
+      const progress = { total, resolved };
+      map.set(node.path, progress);
+      return progress;
+    };
+
+    for (const node of nodes) {
+      walk(node);
+    }
+
+    return map;
+  }, [nodes]);
+
   const [expanded, updateExpanded] = useState<Set<string>>(defaultExpanded);
+
+  useEffect(() => {
+    updateExpanded(defaultExpanded);
+  }, [defaultExpanded]);
 
   function setExpanded(path: string, next: boolean) {
     updateExpanded(prev => {
@@ -208,6 +262,7 @@ export function FileTree({
           depth={0}
           expanded={expanded}
           setExpanded={setExpanded}
+          progressByPath={progressByPath}
           selectedPath={selectedPath}
           onSelectFile={onSelectFile}
           onDeleteFile={onDeleteFile}

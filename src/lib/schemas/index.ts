@@ -5,3 +5,4 @@ export * from "./reference-file.schema";
 export * from "./template-file.schema";
 export * from "./manual-generation.schema";
 export * from "./document.schema";
+export * from "./handbook.schema";

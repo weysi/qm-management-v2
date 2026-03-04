@@ -61,14 +61,25 @@ export function AssetSlotCard({
 
 			<div className="mt-3">
 				{asset?.preview_url ? (
-					// eslint-disable-next-line @next/next/no-img-element
-					<img
-						src={asset.preview_url}
-						alt={`${title} Vorschau`}
-						className="h-20 w-full rounded border border-gray-200 object-contain bg-gray-50"
-					/>
+					<div
+						className="h-20 w-full overflow-hidden rounded border border-gray-200"
+						style={{
+							backgroundColor: '#ffffff',
+							backgroundImage:
+								'linear-gradient(45deg, #f5f5f5 25%, transparent 25%), linear-gradient(-45deg, #f5f5f5 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #f5f5f5 75%), linear-gradient(-45deg, transparent 75%, #f5f5f5 75%)',
+							backgroundSize: '12px 12px',
+							backgroundPosition: '0 0, 0 6px, 6px -6px, -6px 0px',
+						}}
+					>
+						{/* eslint-disable-next-line @next/next/no-img-element */}
+						<img
+							src={asset.preview_url}
+							alt={`${title} Vorschau`}
+							className="h-full w-full object-contain"
+						/>
+					</div>
 				) : (
-					<div className="flex h-20 items-center justify-center rounded border border-dashed border-gray-200 bg-gray-50 text-xs text-gray-500">
+					<div className="flex h-20 items-center justify-center rounded border border-dashed border-gray-200 bg-white text-xs text-gray-500">
 						Keine Vorschau
 					</div>
 				)}

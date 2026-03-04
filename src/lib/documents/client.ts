@@ -14,9 +14,11 @@ import {
   TreeResponseSchema,
   UploadAssetResponseSchema,
   UploadDocumentResponseSchema,
+  AiFillVariableResponseSchema,
   type UploadDocumentResponse,
   type RenderDocumentResponse,
   type RewriteDocumentResponse,
+  type AiFillVariableResponse,
 } from './schemas';
 
 export class ApiRequestError extends Error {
@@ -237,6 +239,42 @@ export async function deleteWorkspaceAsset(params: {
     },
   );
   await parseJsonOrError<unknown>(res);
+}
+
+export async function aiFillVariable(params: {
+  handbookId: string;
+  variableName: string;
+  currentValue: string | null;
+  instruction: string;
+  clientContext: Record<string, unknown>;
+  language: 'de-DE' | 'en-US';
+  constraints: {
+    maxLength: number | null;
+    required: boolean;
+  };
+  variableDescription?: string | null;
+}): Promise<AiFillVariableResponse> {
+  const res = await fetch(
+    `/api/handbooks/${encodeURIComponent(params.handbookId)}/variables/ai-fill`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        variable_name: params.variableName,
+        current_value: params.currentValue,
+        instruction: params.instruction,
+        client_context: params.clientContext,
+        language: params.language,
+        constraints: {
+          max_length: params.constraints.maxLength,
+          required: params.constraints.required,
+        },
+        variable_description: params.variableDescription ?? undefined,
+      }),
+    },
+  );
+  const data = await parseJsonOrError<unknown>(res);
+  return AiFillVariableResponseSchema.parse(data);
 }
 
 export function documentVersionFilename(version: DocumentVersion): string {

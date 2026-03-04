@@ -18,12 +18,12 @@ export default function DashboardPage() {
     { label: "Handbücher", value: manuals.length, color: "text-green-600" },
     {
       label: "Abgeschlossen",
-      value: manuals.filter((m) => m.status === "complete").length,
+      value: manuals.filter(m => m.status === "READY" || m.status === "EXPORTED").length,
       color: "text-purple-600",
     },
     {
       label: "In Bearbeitung",
-      value: manuals.filter((m) => m.status === "in_progress").length,
+      value: manuals.filter(m => m.status === "IN_PROGRESS").length,
       color: "text-orange-600",
     },
   ];
@@ -115,31 +115,33 @@ export default function DashboardPage() {
 						</Link>
 					</div>
 					<div className="divide-y divide-gray-50">
-						{manuals.slice(0, 5).map(m => {
-							const statusVariant =
-								m.status === 'complete'
-									? 'green'
-									: m.status === 'in_progress'
-										? 'orange'
-										: 'gray';
-							const statusLabel =
-								m.status === 'complete'
-									? 'Abgeschlossen'
-									: m.status === 'in_progress'
-										? 'In Bearbeitung'
-										: 'Entwurf';
+							{manuals.slice(0, 5).map(m => {
+								const statusVariant =
+									m.status === 'READY' || m.status === 'EXPORTED'
+										? 'green'
+										: m.status === 'IN_PROGRESS'
+											? 'orange'
+											: 'gray';
+								const statusLabel =
+									m.status === 'READY'
+										? 'Abgeschlossen'
+										: m.status === 'EXPORTED'
+											? 'Exportiert'
+											: m.status === 'IN_PROGRESS'
+											? 'In Bearbeitung'
+											: 'Entwurf';
 							return (
 								<Link
 									key={m.id}
 									href={`/handbooks/${m.id}`}
 									className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors"
-								>
-									<div>
-										<p className="font-medium text-gray-900">{m.title}</p>
-										<p className="text-sm text-gray-500">
-											v{m.version} · {formatDate(m.updatedAt)}
-										</p>
-									</div>
+									>
+										<div>
+											<p className="font-medium text-gray-900">{m.type}</p>
+											<p className="text-sm text-gray-500">
+												{formatDate(m.updated_at)}
+											</p>
+										</div>
 									<Badge variant={statusVariant}>{statusLabel}</Badge>
 								</Link>
 							);

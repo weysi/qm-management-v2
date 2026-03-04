@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from zipfile import BadZipFile
 
 from django.conf import settings
 from django.http import FileResponse, Http404
@@ -10,8 +11,15 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .models import Document, DocumentVersion
-from .serializers import DocumentSerializer, DocumentVersionSerializer, WorkspaceAssetSerializer
+from .models import Document, DocumentVersion, Handbook, HandbookFile, VersionSnapshot
+from .serializers import (
+    DocumentSerializer,
+    DocumentVersionSerializer,
+    HandbookFileSerializer,
+    HandbookSerializer,
+    VersionSnapshotSerializer,
+    WorkspaceAssetSerializer,
+)
 from .services.asset_service import (
     AssetValidationError,
     get_active_asset,
@@ -21,10 +29,26 @@ from .services.asset_service import (
 )
 from .services.file_tree_service import build_tree, soft_delete_path
 from .services.generation_policy import GenerationPolicyValidationError, parse_generation_policy
+from .services.handbook_service import (
+    ExportValidationError,
+    HandbookServiceError,
+    ai_fill_single_placeholder,
+    build_handbook_tree,
+    create_handbook,
+    delete_snapshot,
+    export_handbook,
+    get_file_placeholders,
+    list_snapshots,
+    refresh_handbook_completion,
+    resolve_snapshot_export_path,
+    save_placeholder_values,
+    upload_handbook_zip,
+)
 from .services.render_service import RenderValidationError, render_document
 from .services.rewrite_service import RewriteValidationError, rewrite_document
 from .services.token_metrics import estimate_token_count_from_bytes, log_token_metrics
 from .services.upload_service import UploadValidationError, upload_document
+from .services.variable_fill_service import VariableFillError, fill_variable_value
 
 logger = logging.getLogger(__name__)
 
@@ -356,3 +380,314 @@ def handbook_asset_download_view(request, handbook_id: str, asset_type: str):
     response["Content-Disposition"] = f'attachment; filename="{path.name}"'
     response["Content-Length"] = str(path.stat().st_size)
     return response
+
+
+def _get_handbook_or_404(handbook_id: str) -> Handbook | None:
+    handbook = Handbook.objects.filter(id=handbook_id).first()
+    if handbook is None:
+        return None
+    return handbook
+
+
+@api_view(["GET", "POST"])
+def handbooks_view(request):
+    if request.method == "GET":
+        customer_id = str(request.query_params.get("customer_id", "")).strip()
+        query = Handbook.objects.all().order_by("-created_at")
+        if customer_id:
+            query = query.filter(customer_id=customer_id)
+        return Response({"handbooks": HandbookSerializer(query, many=True).data}, status=status.HTTP_200_OK)
+
+    customer_id = str(request.data.get("customer_id", "")).strip()
+    handbook_type = str(request.data.get("type", "")).strip()
+    if not customer_id:
+        return Response({"error": "customer_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+    if not handbook_type:
+        return Response({"error": "type is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        handbook = create_handbook(customer_id=customer_id, handbook_type=handbook_type)
+    except Exception as exc:  # noqa: BLE001
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(HandbookSerializer(handbook).data, status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET"])
+def handbook_detail_view(request, handbook_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+    return Response(HandbookSerializer(handbook).data, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def handbook_upload_zip_view(request, handbook_id: str):
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    uploaded = request.FILES.get("file")
+    if uploaded is None:
+        return Response({"error": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        result = upload_handbook_zip(handbook=handbook, uploaded=uploaded)
+    except HandbookServiceError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except BadZipFile:
+        return Response({"error": "Invalid ZIP archive"}, status=status.HTTP_400_BAD_REQUEST)
+
+    refresh_handbook_completion(handbook=handbook)
+    files_payload = HandbookFileSerializer(result.files, many=True).data
+    return Response(
+        {
+            "handbook": HandbookSerializer(handbook).data,
+            "tree": result.tree,
+            "files": files_payload,
+            "warnings": result.warnings,
+            "summary": {
+                "files_total": len(result.files),
+                "parse_failed": sum(1 for item in result.files if item.parse_status == HandbookFile.ParseStatus.FAILED),
+                "placeholders_total": sum(item.placeholder_total for item in result.files),
+            },
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(["GET"])
+def handbook_tree_view(request, handbook_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+    refresh_handbook_completion(handbook=handbook)
+    tree = build_handbook_tree(handbook=handbook)
+    return Response({"tree": tree}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+def handbook_file_placeholders_view(request, handbook_id: str, file_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    handbook_file = HandbookFile.objects.filter(id=file_id, handbook=handbook).first()
+    if handbook_file is None:
+        return Response({"error": "Handbook file not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    refresh_handbook_completion(handbook=handbook)
+    payload = get_file_placeholders(handbook=handbook, handbook_file=handbook_file)
+    return Response(
+        {
+            "file": HandbookFileSerializer(handbook_file).data,
+            "placeholders": payload["placeholders"],
+            "completion": payload["completion"],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["POST"])
+def handbook_save_placeholders_view(request, handbook_id: str):
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    file_id = str(request.data.get("file_id", "")).strip()
+    if not file_id:
+        return Response({"error": "file_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+    handbook_file = HandbookFile.objects.filter(id=file_id, handbook=handbook).first()
+    if handbook_file is None:
+        return Response({"error": "Handbook file not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    values_raw = request.data.get("values")
+    if isinstance(values_raw, dict):
+        values = [{"key": key, "value_text": value} for key, value in values_raw.items()]
+    elif isinstance(values_raw, list):
+        values = values_raw
+    else:
+        return Response({"error": "values must be an object or array"}, status=status.HTTP_400_BAD_REQUEST)
+
+    source = str(request.data.get("source", "MANUAL")).strip().upper() or "MANUAL"
+    try:
+        payload = save_placeholder_values(
+            handbook=handbook,
+            handbook_file=handbook_file,
+            values=values,
+            source=source,
+        )
+    except HandbookServiceError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    snapshot = payload["snapshot"]
+    return Response(
+        {
+            "file": HandbookFileSerializer(payload["file"]).data,
+            "placeholders": payload["placeholders"],
+            "completion": payload["completion"],
+            "snapshot": VersionSnapshotSerializer(snapshot).data,
+            "handbook": HandbookSerializer(handbook).data,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["POST"])
+def handbook_placeholder_ai_fill_view(request, handbook_id: str):
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    file_id = str(request.data.get("file_id", "")).strip()
+    placeholder_key = str(request.data.get("placeholder_key", "")).strip()
+    if not file_id or not placeholder_key:
+        return Response(
+            {"error": "file_id and placeholder_key are required"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    handbook_file = HandbookFile.objects.filter(id=file_id, handbook=handbook).first()
+    if handbook_file is None:
+        return Response({"error": "Handbook file not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    current_value_raw = request.data.get("current_value")
+    current_value = None if current_value_raw is None else str(current_value_raw)
+    instruction = str(request.data.get("instruction", "")).strip()
+    language = str(request.data.get("language", "de-DE")).strip()
+    context = request.data.get("context", {})
+    constraints = request.data.get("constraints", {})
+
+    try:
+        payload = ai_fill_single_placeholder(
+            handbook=handbook,
+            handbook_file=handbook_file,
+            placeholder_key=placeholder_key,
+            current_value=current_value,
+            instruction=instruction,
+            language=language,
+            context=context if isinstance(context, dict) else {},
+            constraints=constraints if isinstance(constraints, dict) else {},
+        )
+    except VariableFillError as exc:
+        return Response(
+            {"error": str(exc), "error_code": exc.error_code},
+            status=exc.status_code,
+        )
+    except HandbookServiceError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(payload, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+def handbook_versions_view(request, handbook_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    versions = list_snapshots(handbook=handbook)
+    return Response({"versions": VersionSnapshotSerializer(versions, many=True).data}, status=status.HTTP_200_OK)
+
+
+@api_view(["DELETE"])
+def handbook_version_detail_view(request, handbook_id: str, version_number: int):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    deleted = delete_snapshot(handbook=handbook, version_number=version_number)
+    if not deleted:
+        return Response({"error": "Version not found"}, status=status.HTTP_404_NOT_FOUND)
+    return Response({"status": "deleted", "version_number": version_number}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+def handbook_version_download_view(request, handbook_id: str, version_number: int):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    export_path = resolve_snapshot_export_path(handbook=handbook, version_number=version_number)
+    if export_path is None:
+        exists = VersionSnapshot.objects.filter(
+            handbook=handbook,
+            version_number=version_number,
+        ).exists()
+        if not exists:
+            return Response({"error": "Version not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"error": "Version is not downloadable"}, status=status.HTTP_400_BAD_REQUEST)
+
+    response = FileResponse(export_path.open("rb"), content_type="application/zip")
+    response["Content-Disposition"] = f'attachment; filename="{export_path.name}"'
+    response["Content-Length"] = str(export_path.stat().st_size)
+    return response
+
+
+@api_view(["POST"])
+def handbook_export_view(request, handbook_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        zip_path, snapshot = export_handbook(handbook=handbook)
+    except ExportValidationError as exc:
+        return Response(
+            {
+                "error": "Validation failed",
+                "errors": exc.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    except HandbookServiceError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    response = FileResponse(zip_path.open("rb"), content_type="application/zip")
+    response["Content-Disposition"] = f'attachment; filename=\"{zip_path.name}\"'
+    response["Content-Length"] = str(zip_path.stat().st_size)
+    response["X-Snapshot-Version"] = str(snapshot.version_number)
+    return response
+
+
+@api_view(["POST"])
+def handbook_variable_ai_fill_view(request, handbook_id: str):
+    variable_name = str(request.data.get("variable_name", "")).strip()
+    current_value_raw = request.data.get("current_value")
+    current_value = None if current_value_raw is None else str(current_value_raw)
+    instruction = str(request.data.get("instruction", "")).strip()
+    language = str(request.data.get("language", "de-DE")).strip()
+    client_context = request.data.get("client_context", {})
+    constraints = request.data.get("constraints", {})
+    variable_description_raw = request.data.get("variable_description")
+    variable_description = (
+        None if variable_description_raw is None else str(variable_description_raw)
+    )
+
+    try:
+        payload = fill_variable_value(
+            handbook_id=handbook_id,
+            variable_name=variable_name,
+            current_value=current_value,
+            instruction=instruction,
+            language=language,
+            client_context=client_context,
+            constraints=constraints,
+            variable_description=variable_description,
+        )
+    except VariableFillError as exc:
+        return Response(
+            {
+                "error": str(exc),
+                "error_code": exc.error_code,
+            },
+            status=exc.status_code,
+        )
+
+    return Response(payload, status=status.HTTP_200_OK)
