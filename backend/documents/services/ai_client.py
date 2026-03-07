@@ -37,6 +37,9 @@ class AiClient:
         self._variable_model = getattr(settings, "OPENAI_VARIABLE_MODEL", self._model)
         self._variable_timeout = int(getattr(settings, "AI_VARIABLE_TIMEOUT_SECONDS", self._timeout))
         self._variable_retries = int(getattr(settings, "AI_VARIABLE_RETRIES", self._retries))
+        self._compose_model = getattr(settings, "OPENAI_COMPOSE_MODEL", self._variable_model)
+        self._compose_timeout = int(getattr(settings, "AI_COMPOSE_TIMEOUT_SECONDS", self._variable_timeout))
+        self._compose_retries = int(getattr(settings, "AI_COMPOSE_RETRIES", self._variable_retries))
 
     def rewrite(self, *, instruction: str, content: str) -> RewriteResponse:
         last_error: Exception | None = None
@@ -164,3 +167,44 @@ class AiClient:
                 time.sleep(min(2**attempt, 4))
 
         raise AiClientError(f"AI variable fill failed: {last_error}")
+
+    def compose_placeholder_value(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> VariableValueResponse:
+        last_error: Exception | None = None
+
+        for attempt in range(self._compose_retries + 1):
+            try:
+                response = self._client.chat.completions.create(
+                    model=self._compose_model,
+                    timeout=self._compose_timeout,
+                    temperature=0.15,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
+                text = (response.choices[0].message.content or "").strip()
+                if not text:
+                    raise AiClientError("AI returned empty compose output")
+
+                usage = {
+                    "prompt_tokens": int((response.usage.prompt_tokens if response.usage else 0) or 0),
+                    "completion_tokens": int((response.usage.completion_tokens if response.usage else 0) or 0),
+                    "total_tokens": int((response.usage.total_tokens if response.usage else 0) or 0),
+                }
+                return VariableValueResponse(
+                    value=text,
+                    model=response.model,
+                    usage=usage,
+                )
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if attempt >= self._compose_retries:
+                    break
+                time.sleep(min(2**attempt, 4))
+
+        raise AiClientError(f"AI compose failed: {last_error}")

@@ -17,8 +17,12 @@ export type {
 } from "@/lib/schemas/placeholder.schema";
 
 export type {
-  ReferenceFile,
-  CreateReferenceFileInput,
+  ReferenceDocument as ReferenceFile,
+  ReferenceDocument,
+  ReferenceDocumentLink,
+  ReferenceChunk,
+  ReferencePreview,
+  ReferenceScope,
 } from "@/lib/schemas/reference-file.schema";
 
 export type {
@@ -54,6 +58,9 @@ export type {
   HandbookFile,
   HandbookTreeNode,
   HandbookPlaceholder,
+  HandbookComposeConfig,
+  HandbookComposeTrace,
+  HandbookComposeResponse,
   HandbookSnapshot,
   HandbookCompletionFile,
   HandbookCompletion,

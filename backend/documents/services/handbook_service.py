@@ -21,11 +21,19 @@ from documents.models import (
     Handbook,
     HandbookFile,
     Placeholder,
+    PlaceholderGenerationAudit,
     PlaceholderParseCache,
     PlaceholderValue,
     VersionSnapshot,
 )
 
+from .compose_service import (
+    quick_fill_placeholder_value,
+    serialize_audit_summary,
+    suggested_mode_for_placeholder,
+    suggested_output_class_for_placeholder,
+    supported_capabilities_for_placeholder,
+)
 from .asset_resolver import StorageAssetResolver
 from .asset_service import (
     AssetValidationError,
@@ -40,7 +48,6 @@ from .inject_pptx import inject_pptx_assets
 from .inject_xlsx import inject_xlsx_assets
 from .office_asset_types import ResolvedOfficeAsset
 from .storage import LocalFilesystemStorage
-from .variable_fill_service import fill_variable_value
 from .variable_keys import (
     CANONICAL_ASSET_LOGO,
     CANONICAL_ASSET_SIGNATURE,
@@ -1033,8 +1040,15 @@ def get_file_placeholders(*, handbook: Handbook, handbook_file: HandbookFile) ->
     )
     value_map = {
         canonicalize_placeholder_key(item.key): item
-        for item in PlaceholderValue.objects.filter(handbook=handbook)
+        for item in PlaceholderValue.objects.filter(handbook=handbook).select_related("last_generation_audit")
     }
+    latest_audits: dict[str, PlaceholderGenerationAudit] = {}
+    for audit in (
+        PlaceholderGenerationAudit.objects.filter(placeholder__in=placeholders)
+        .select_related("placeholder")
+        .order_by("placeholder_id", "-created_at")
+    ):
+        latest_audits.setdefault(str(audit.placeholder_id), audit)
     asset_keys = _resolved_asset_keys(handbook)
 
     payload: list[dict[str, object]] = []
@@ -1044,6 +1058,11 @@ def get_file_placeholders(*, handbook: Handbook, handbook_file: HandbookFile) ->
         value = value_map.get(canonical_key)
         value_text = value.value_text if value else None
         asset_id = value.asset_id if value else None
+        latest_audit = None
+        if value and value.last_generation_audit_id and value.last_generation_audit and value.last_generation_audit.placeholder_id == item.id:
+            latest_audit = value.last_generation_audit
+        if latest_audit is None:
+            latest_audit = latest_audits.get(str(item.id))
 
         if item.kind == Placeholder.Kind.ASSET:
             resolved = canonical_key in asset_keys
@@ -1062,7 +1081,18 @@ def get_file_placeholders(*, handbook: Handbook, handbook_file: HandbookFile) ->
                 "meta": item.meta,
                 "value_text": value_text,
                 "asset_id": str(asset_id) if asset_id else None,
+                "source": value.source if value else None,
                 "resolved": resolved,
+                "latest_audit": serialize_audit_summary(latest_audit),
+                "suggested_mode": suggested_mode_for_placeholder(placeholder=item, handbook_file=handbook_file),
+                "suggested_output_class": suggested_output_class_for_placeholder(
+                    placeholder=item,
+                    handbook_file=handbook_file,
+                ),
+                "supported_capabilities": supported_capabilities_for_placeholder(
+                    placeholder=item,
+                    handbook_file=handbook_file,
+                ),
             }
         )
 
@@ -1085,9 +1115,22 @@ def save_placeholder_values(
     values: list[dict[str, object]],
     source: str = PlaceholderValue.Source.MANUAL,
 ) -> dict[str, object]:
+    source_choices = {choice for choice, _label in PlaceholderValue.Source.choices}
     valid_placeholders = {
         canonicalize_placeholder_key(item.key): item
         for item in Placeholder.objects.filter(handbook_file=handbook_file)
+    }
+    requested_audit_ids = {
+        str(entry.get("audit_id", "") or "").strip()
+        for entry in values
+        if str(entry.get("audit_id", "") or "").strip()
+    }
+    audits_by_id = {
+        str(item.id): item
+        for item in PlaceholderGenerationAudit.objects.filter(
+            id__in=requested_audit_ids,
+            handbook=handbook,
+        )
     }
 
     for entry in values:
@@ -1103,12 +1146,20 @@ def save_placeholder_values(
             value_text_raw = entry.get("value")
         value_text = None if value_text_raw is None else str(value_text_raw)
 
-        asset_id_raw = entry.get("asset_id")
+        asset_id_raw = entry.get("asset_id") or None
+        audit_id_raw = str(entry.get("audit_id", "") or "").strip()
+        entry_source = str(entry.get("source", source)).strip().upper() or source
+        if entry_source not in source_choices:
+            raise HandbookServiceError(f"Unsupported placeholder source '{entry_source}'")
+        audit = audits_by_id.get(audit_id_raw) if audit_id_raw else None
+        if audit is not None and audit.placeholder_id != placeholder.id:
+            raise HandbookServiceError("audit_id does not belong to the provided placeholder")
 
         defaults = {
-            "source": source,
+            "source": entry_source,
             "value_text": value_text,
             "asset_id": asset_id_raw,
+            "last_generation_audit": audit,
         }
 
         if placeholder.kind == Placeholder.Kind.ASSET:
@@ -1144,22 +1195,28 @@ def ai_fill_single_placeholder(
     constraints: dict[str, object] | None,
 ) -> dict[str, object]:
     canonical_key = canonicalize_placeholder_key(placeholder_key)
-    if not Placeholder.objects.filter(handbook_file=handbook_file, key=canonical_key).exists():
+    placeholder = Placeholder.objects.filter(handbook_file=handbook_file, key=canonical_key).first()
+    if placeholder is None:
         raise HandbookServiceError(f"Placeholder '{canonical_key}' is not part of this file")
 
-    result = fill_variable_value(
-        handbook_id=str(handbook.id),
-        variable_name=canonical_key,
+    result = quick_fill_placeholder_value(
+        handbook=handbook,
+        handbook_file=handbook_file,
+        placeholder=placeholder,
         current_value=current_value,
         instruction=instruction,
         language=language,
-        client_context=context or {},
+        user_context=context or {},
         constraints=constraints or {},
-        variable_description=None,
     )
     return {
-        "value": result["value"],
-        "usage": result["usage"],
+        "value": result.value,
+        "mode": result.mode,
+        "output_class": result.output_class,
+        "usage": result.usage,
+        "model": result.model,
+        "audit": serialize_audit_summary(result.audit),
+        "trace": result.trace,
     }
 
 

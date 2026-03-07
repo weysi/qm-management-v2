@@ -5,13 +5,18 @@ from pathlib import Path
 from rest_framework import serializers
 
 from .models import (
+    DocumentTextExtractionCache,
     Document,
     DocumentVariable,
     DocumentVersion,
     Handbook,
     HandbookFile,
     Placeholder,
+    PlaceholderGenerationAudit,
     PlaceholderValue,
+    ReferenceChunk,
+    ReferenceDocument,
+    ReferenceDocumentLink,
     VersionSnapshot,
     WorkspaceAsset,
 )
@@ -186,9 +191,107 @@ class PlaceholderValueSerializer(serializers.ModelSerializer):
             "key",
             "value_text",
             "asset_id",
+            "last_generation_audit_id",
             "source",
             "updated_at",
         ]
+
+
+class ReferenceDocumentLinkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ReferenceDocumentLink
+        fields = [
+            "id",
+            "reference_document_id",
+            "scope",
+            "handbook_file_id",
+            "placeholder_id",
+            "created_at",
+        ]
+
+
+class ReferenceChunkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ReferenceChunk
+        fields = [
+            "id",
+            "reference_document_id",
+            "ordinal",
+            "chunk_type",
+            "title",
+            "locator",
+            "content",
+            "content_hash",
+            "estimated_tokens",
+            "created_at",
+        ]
+
+
+class ReferenceDocumentSerializer(serializers.ModelSerializer):
+    links = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ReferenceDocument
+        fields = [
+            "id",
+            "handbook_id",
+            "original_filename",
+            "file_type",
+            "mime_type",
+            "storage_path",
+            "normalized_storage_path",
+            "checksum",
+            "size_bytes",
+            "parse_status",
+            "parse_error",
+            "summary",
+            "section_count",
+            "created_at",
+            "updated_at",
+            "links",
+        ]
+
+    def get_links(self, obj: ReferenceDocument) -> list[dict[str, object]]:
+        links = getattr(obj, "links", None)
+        if links is None:
+            return []
+        return ReferenceDocumentLinkSerializer(links.all(), many=True).data
+
+
+class PlaceholderGenerationAuditSerializer(serializers.ModelSerializer):
+    usage = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PlaceholderGenerationAudit
+        fields = [
+            "id",
+            "handbook_id",
+            "handbook_file_id",
+            "placeholder_id",
+            "mode",
+            "instruction",
+            "output_style",
+            "language",
+            "model",
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "usage",
+            "references_used",
+            "file_context_used",
+            "fallback_path",
+            "trace",
+            "success",
+            "error_message",
+            "created_at",
+        ]
+
+    def get_usage(self, obj: PlaceholderGenerationAudit) -> dict[str, int]:
+        return {
+            "prompt_tokens": obj.prompt_tokens,
+            "completion_tokens": obj.completion_tokens,
+            "total_tokens": obj.total_tokens,
+        }
 
 
 class VersionSnapshotSerializer(serializers.ModelSerializer):

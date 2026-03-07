@@ -75,7 +75,7 @@ export default function ClientDetailPage({ params }: PageProps) {
 						onClick={() => setDialogOpen(true)}
 						className="flex items-center gap-2"
 					>
-						<Plus className="w-4 h-4" /> Handbuch erstellen
+						<Plus className="w-4 h-4" /> Dokumenten-Workspace erstellen
 					</Button>
 				}
 			/>
@@ -231,7 +231,7 @@ export default function ClientDetailPage({ params }: PageProps) {
 								<div className="flex items-center justify-between">
 									<CardTitle className="text-lg font-semibold flex items-center gap-2 text-gray-900">
 										<BookOpen className="w-5 h-5 text-gray-500" />
-										Handbücher
+										Dokumente
 									</CardTitle>
 									<Badge
 										variant="gray"
@@ -248,11 +248,10 @@ export default function ClientDetailPage({ params }: PageProps) {
 											<BookOpen className="w-6 h-6 text-blue-500" />
 										</div>
 										<p className="text-base font-medium text-gray-900 mb-1">
-											Keine Handbücher
+											Keine Dokumente
 										</p>
 										<p className="text-sm text-gray-500 mb-6 text-center max-w-[200px]">
-											Es wurden noch keine Handbücher für diesen Kunden
-											erstellt.
+											Es wurde noch kein Dokumenten-Workspace für diesen Kunden erstellt.
 										</p>
 										<Button
 											onClick={() => setDialogOpen(true)}

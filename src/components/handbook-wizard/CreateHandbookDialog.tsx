@@ -55,7 +55,7 @@ export function CreateHandbookDialog({
 				},
 			{
 				onSuccess(manual) {
-					toast.success('Handbuch erstellt!');
+					toast.success('Workspace erstellt!');
 					handleClose();
 					router.push(`/handbooks/${manual.id}`);
 				},
@@ -87,17 +87,17 @@ export function CreateHandbookDialog({
 				<DialogHeader>
 					<DialogTitle>
 						{step === 'package'
-							? 'Paket auswählen'
+							? 'Dokumenten-Workspace anlegen'
 							: step === 'review'
 								? 'Zusammenfassung'
-								: 'Handbuch wird erstellt…'}
+								: 'Workspace wird erstellt…'}
 					</DialogTitle>
 					<DialogDescription>
 						{step === 'package'
-							? 'Wählen Sie das Normpaket für das neue Handbuch.'
+							? 'Wählen Sie das Normpaket für den neuen Dokumenten-Workspace.'
 							: step === 'review'
 								? 'Prüfen Sie die Daten und starten Sie die Erstellung.'
-								: 'Bitte warten Sie, während das Handbuch angelegt wird.'}
+								: 'Bitte warten Sie, während der Workspace angelegt wird.'}
 					</DialogDescription>
 				</DialogHeader>
 
@@ -156,7 +156,7 @@ export function CreateHandbookDialog({
 					<div className="py-8 text-center">
 						<div className="animate-spin w-8 h-8 border-2 border-primary border-t-transparent rounded-full mx-auto mb-3" />
 						<p className="text-sm text-gray-600">
-							Handbuch wird erstellt und Paket initialisiert…
+							Workspace wird erstellt und Paket initialisiert…
 						</p>
 					</div>
 				)}
@@ -190,7 +190,7 @@ export function CreateHandbookDialog({
 								onClick={handleCreate}
 								loading={isCreating}
 							>
-								Handbuch erstellen
+								Workspace erstellen
 							</Button>
 						</>
 					)}

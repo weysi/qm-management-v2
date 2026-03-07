@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  ReferenceComposeTraceItemSchema,
+  ReferenceScopeSchema,
+} from './reference-file.schema';
 
 export const HandbookTypeSchema = z.enum([
   'ISO9001',
@@ -82,7 +86,76 @@ export const HandbookPlaceholderSchema = z.object({
   meta: z.record(z.string(), z.unknown()).default({}),
   value_text: z.string().nullable().optional(),
   asset_id: z.string().nullable().optional(),
+  source: z.enum(['MANUAL', 'AI', 'IMPORTED', 'COMPOSED']).nullable().optional(),
   resolved: z.boolean(),
+  latest_audit: z
+    .object({
+      id: z.string().uuid(),
+      mode: z.enum(['quick_fill', 'compose']),
+      output_style: z.string(),
+      language: z.string(),
+      model: z.string(),
+      total_tokens: z.number().int().nonnegative(),
+      success: z.boolean(),
+      created_at: z.string(),
+    })
+    .nullable()
+    .optional(),
+  suggested_mode: z.string().optional(),
+  suggested_output_class: z.enum(['short', 'medium', 'long']).optional(),
+  supported_capabilities: z.array(z.string()).default([]),
+});
+
+export const HandbookComposeConfigSchema = z.object({
+  supported_languages: z.array(z.string()),
+  reference_scopes: z.array(ReferenceScopeSchema),
+  output_styles: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      output_class: z.enum(['short', 'medium', 'long']),
+    }),
+  ),
+  capabilities: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      supported_file_types: z.array(z.string()),
+      supported_placeholder_kinds: z.array(z.string()),
+      requires_references: z.boolean(),
+      output_class: z.enum(['short', 'medium', 'long']),
+      ui_entry_point: z.string(),
+    }),
+  ),
+  limits: z.object({
+    max_reference_documents: z.number().int().positive(),
+    max_reference_chunks: z.number().int().positive(),
+    max_reference_tokens: z.number().int().positive(),
+  }),
+});
+
+export const HandbookComposeTraceSchema = z.object({
+  generation_mode: z.string(),
+  selected_references: z.array(ReferenceComposeTraceItemSchema).default([]),
+  chunk_count: z.number().int().nonnegative(),
+  file_context_used: z.record(z.string(), z.unknown()).default({}),
+  fallback_path: z.string(),
+  selection_trace: z.record(z.string(), z.unknown()).optional(),
+  mode_hint: z.string().nullable().optional(),
+});
+
+export const HandbookComposeResponseSchema = z.object({
+  value: z.string(),
+  mode: z.enum(['quick_fill', 'compose']),
+  output_class: z.enum(['short', 'medium', 'long']),
+  model: z.string(),
+  usage: z.object({
+    prompt_tokens: z.number().int().nonnegative(),
+    completion_tokens: z.number().int().nonnegative(),
+    total_tokens: z.number().int().nonnegative(),
+  }),
+  audit: z.record(z.string(), z.unknown()),
+  trace: HandbookComposeTraceSchema,
 });
 
 export const HandbookSnapshotSchema = z.object({
@@ -116,6 +189,9 @@ export type HandbookStatus = z.infer<typeof HandbookStatusSchema>;
 export type Handbook = z.infer<typeof HandbookSchema>;
 export type HandbookFile = z.infer<typeof HandbookFileSchema>;
 export type HandbookPlaceholder = z.infer<typeof HandbookPlaceholderSchema>;
+export type HandbookComposeConfig = z.infer<typeof HandbookComposeConfigSchema>;
+export type HandbookComposeTrace = z.infer<typeof HandbookComposeTraceSchema>;
+export type HandbookComposeResponse = z.infer<typeof HandbookComposeResponseSchema>;
 export type HandbookSnapshot = z.infer<typeof HandbookSnapshotSchema>;
 export type HandbookCompletionFile = z.infer<typeof HandbookCompletionFileSchema>;
 export type HandbookCompletion = z.infer<typeof HandbookCompletionSchema>;

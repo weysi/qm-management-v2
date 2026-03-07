@@ -1,769 +1,847 @@
 'use client';
 
+import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
+import { FileArchive, Sparkles, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { Header } from '@/components/layout/Header';
+import { FileTreePanel } from '@/components/document-workflow/file-tree/FileTreePanel';
 import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from '@/components/ui/dialog';
+	ScrollableDialog,
+	ScrollableDialogBody,
+	ScrollableDialogContent,
+	ScrollableDialogDescription,
+	ScrollableDialogFooter,
+	ScrollableDialogHeader,
+	ScrollableDialogTitle,
+} from '@/components/document-workflow/modals/ScrollableDialog';
+import {
+	ScrollableSheet,
+	ScrollableSheetBody,
+	ScrollableSheetContent,
+	ScrollableSheetDescription,
+	ScrollableSheetHeader,
+	ScrollableSheetTitle,
+} from '@/components/document-workflow/modals/ScrollableSheet';
+import { MissingPlaceholdersDialog } from '@/components/document-workflow/placeholders/MissingPlaceholdersDialog';
+import { PlaceholderEditorDialog } from '@/components/document-workflow/placeholders/PlaceholderEditorDialog';
+import { PlaceholderWorkspacePanel } from '@/components/document-workflow/placeholders/PlaceholderWorkspacePanel';
+import { UploadSummaryCard } from '@/components/document-workflow/upload/UploadSummaryCard';
+import { ZipUploadDropzone } from '@/components/document-workflow/upload/ZipUploadDropzone';
+import { ScanSummary } from '@/components/document-workflow/workflow/ScanSummary';
+import { UploadProgressSteps } from '@/components/document-workflow/workflow/UploadProgressSteps';
+import { Header } from '@/components/layout/Header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
-import { Textarea } from '@/components/ui/textarea';
-import { FileTree } from '@/components/handbook-wizard/FileTree';
-import { AssetSlotCard } from '@/components/handbook-wizard/AssetSlotCard';
-import { SignatureCanvasCard } from '@/components/handbook-wizard/SignatureCanvasCard';
-import { ZipDropzone } from '@/components/handbook-wizard/ZipDropzone';
 import { useClient } from '@/hooks/useClients';
-import { useCompletionTransitionModal } from '@/hooks/useCompletionTransitionModal';
 import {
-	useAiFillHandbookPlaceholder,
+	fetchHandbookFilePlaceholders,
+	useComposePlaceholder,
 	useCreateHandbookVersion,
 	useDeleteHandbookVersion,
 	useDownloadHandbookVersion,
-	useDeleteWorkspaceAsset,
 	useExportHandbook,
 	useFilePlaceholders,
-	useHandbookCompletion,
 	useHandbook,
+	useHandbookCompletion,
 	useHandbookTree,
 	useHandbookVersions,
+	useReferenceFiles,
 	useSaveFilePlaceholders,
 	useSaveSignatureCanvas,
 	useUploadHandbookZip,
 	useUploadWorkspaceAsset,
 	useWorkspaceAssets,
+	useDeleteWorkspaceAsset,
 } from '@/hooks';
+import {
+	getPreferredReferenceId,
+	setPreferredReferenceId,
+} from '@/lib/document-workflow/reference-selection';
+import {
+	createHandbookUploadArchive,
+	isZipUpload,
+} from '@/lib/document-workflow/upload';
+import {
+	buildFileTreeItems,
+	buildProjectUploadSummary,
+	collectIncompleteFiles,
+	findFirstActionableFile,
+	findFileTreeItem,
+	humanizePlaceholderLabel,
+	mapPlaceholdersToEditable,
+	type EditablePlaceholder,
+	type FileTreeItem,
+	type MissingPlaceholderItem,
+	type PlaceholderListFilterState,
+} from '@/lib/document-workflow/view-models';
 
 interface PageProps {
-  params: Promise<{ id: string }>;
+	params: Promise<{ id: string }>;
 }
 
-interface FlatFileNode {
-  id: string;
-  path: string;
-  name: string;
-  placeholder_total: number;
-  placeholder_resolved: number;
-}
-
-function flattenFileNodes(tree: Array<Record<string, unknown>> | Array<any>): FlatFileNode[] {
-  const out: FlatFileNode[] = [];
-  const walk = (nodes: Array<Record<string, unknown>>) => {
-    for (const node of nodes) {
-      const kind = String(node.kind ?? '');
-      if (kind === 'file' && typeof node.id === 'string' && typeof node.path === 'string') {
-        out.push({
-          id: node.id,
-          path: node.path,
-          name: String(node.name ?? node.path),
-          placeholder_total: Number(node.placeholder_total ?? 0),
-          placeholder_resolved: Number(node.placeholder_resolved ?? 0),
-        });
-      }
-      if (kind === 'folder' && Array.isArray(node.children)) {
-        walk(node.children as Array<Record<string, unknown>>);
-      }
-    }
-  };
-  walk(tree);
-  return out;
+interface LatestUploadState {
+	sourceType: 'zip' | 'files';
+	fileCount: number;
+	label: string;
+	warnings: string[];
 }
 
 function triggerBrowserDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+	const url = URL.createObjectURL(blob);
+	const anchor = document.createElement('a');
+	anchor.href = url;
+	anchor.download = filename;
+	document.body.appendChild(anchor);
+	anchor.click();
+	anchor.remove();
+	URL.revokeObjectURL(url);
+}
+
+function getPlaceholderAssetType(placeholder: EditablePlaceholder | null) {
+	return placeholder?.type === 'signature' ? 'signature' : 'logo';
+}
+
+function buildCurrentStep({
+	filesScanned,
+	selectedFile,
+	totalPlaceholders,
+	allComplete,
+}: {
+	filesScanned: number;
+	selectedFile: FileTreeItem | null;
+	totalPlaceholders: number;
+	allComplete: boolean;
+}) {
+	if (filesScanned === 0) return 1;
+	if (!selectedFile) return 2;
+	if (totalPlaceholders === 0) return 3;
+	if (allComplete) return 5;
+	return 4;
+}
+
+function findFirstVisibleFile(items: FileTreeItem[]): FileTreeItem | null {
+	for (const item of items) {
+		if (item.kind === 'file' && item.id) {
+			return item;
+		}
+		const nested = findFirstVisibleFile(item.children);
+		if (nested) return nested;
+	}
+	return null;
+}
+
+function fileLabel(count: number) {
+	return `${count} file${count === 1 ? '' : 's'}`;
 }
 
 export default function HandbookPage({ params }: PageProps) {
-  const { id } = use(params);
+	const { id } = use(params);
 
-  const { data: handbook, isLoading: handbookLoading } = useHandbook(id);
-  const { data: client, isLoading: clientLoading } = useClient(handbook?.customer_id ?? '');
-  const { data: treeResponse = [], isLoading: treeLoading } = useHandbookTree(id);
-  const { data: completion } = useHandbookCompletion(id);
-  const { data: assets = [] } = useWorkspaceAssets(id);
-  const { data: versions = [] } = useHandbookVersions(id);
+	const { data: handbook, isLoading: handbookLoading } = useHandbook(id);
+	const { data: client, isLoading: clientLoading } = useClient(
+		handbook?.customer_id ?? '',
+	);
+	const { data: tree = [], isLoading: treeLoading } = useHandbookTree(id);
+	const { data: completion } = useHandbookCompletion(id);
+	const { data: assets = [] } = useWorkspaceAssets(id);
+	const { data: versions = [] } = useHandbookVersions(id);
+	const { data: referenceFiles = [] } = useReferenceFiles(id);
 
-  const uploadZip = useUploadHandbookZip(id);
-  const uploadAsset = useUploadWorkspaceAsset(id);
-  const saveSignature = useSaveSignatureCanvas(id);
-  const deleteAsset = useDeleteWorkspaceAsset(id);
-  const savePlaceholders = useSaveFilePlaceholders(id);
-  const aiFill = useAiFillHandbookPlaceholder(id);
-  const deleteVersion = useDeleteHandbookVersion(id);
-  const downloadVersion = useDownloadHandbookVersion(id);
-  const createVersion = useCreateHandbookVersion(id);
-  const exportHandbook = useExportHandbook(id);
+	const uploadZip = useUploadHandbookZip(id);
+	const savePlaceholders = useSaveFilePlaceholders(id);
+	const uploadWorkspaceAsset = useUploadWorkspaceAsset(id);
+	const deleteWorkspaceAsset = useDeleteWorkspaceAsset(id);
+	const saveSignature = useSaveSignatureCanvas(id);
+	const composePlaceholder = useComposePlaceholder(id);
+	const exportHandbook = useExportHandbook(id);
+	const createVersion = useCreateHandbookVersion(id);
+	const downloadVersion = useDownloadHandbookVersion(id);
+	const deleteVersion = useDeleteHandbookVersion(id);
 
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
-  const [selectedVersionNumber, setSelectedVersionNumber] = useState<number | null>(null);
-  const [selectedZipFile, setSelectedZipFile] = useState<File | null>(null);
-	const [zipUploadError, setZipUploadError] = useState<string | null>(null);
-  const [aiInstruction, setAiInstruction] = useState('');
-  const [aiLanguage, setAiLanguage] = useState<'de-DE' | 'en-US'>('de-DE');
-  const [variableValues, setVariableValues] = useState<Record<string, string>>({});
+	const [uploadError, setUploadError] = useState<string | null>(null);
+	const [showAllFiles, setShowAllFiles] = useState(false);
+	const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+	const [treeSheetOpen, setTreeSheetOpen] = useState(false);
+	const [editingPlaceholderId, setEditingPlaceholderId] = useState<string | null>(
+		null,
+	);
+	const [draftValues, setDraftValues] = useState<Record<string, string>>({});
+	const [placeholderFilters, setPlaceholderFilters] =
+		useState<PlaceholderListFilterState>({
+			search: '',
+			status: 'all',
+			type: 'all',
+		});
+	const [missingItems, setMissingItems] = useState<MissingPlaceholderItem[]>([]);
+	const [missingDialogOpen, setMissingDialogOpen] = useState(false);
+	const [missingDialogLoading, setMissingDialogLoading] = useState(false);
+	const [actionsOpen, setActionsOpen] = useState(false);
+	const [preferredReferenceId, setPreferredReferenceIdState] = useState<
+		string | null
+	>(null);
+	const [latestUpload, setLatestUpload] = useState<LatestUploadState | null>(null);
+	const [aiDialogOpen, setAiDialogOpen] = useState(false);
+	const [clearingPlaceholderId, setClearingPlaceholderId] = useState<string | null>(
+		null,
+	);
 
-  const flatFiles = useMemo(() => flattenFileNodes(treeResponse), [treeResponse]);
-  const totalPlaceholders =
-		completion?.required_total ??
-		flatFiles.reduce((sum, item) => sum + item.placeholder_total, 0);
-	const resolvedPlaceholders =
+	const summary = useMemo(
+		() => buildProjectUploadSummary(tree, completion),
+		[completion, tree],
+	);
+	const treeItems = useMemo(
+		() => buildFileTreeItems(tree, { showAllFiles }),
+		[showAllFiles, tree],
+	);
+	const selectedFile = useMemo(
+		() => findFileTreeItem(treeItems, selectedFileId),
+		[selectedFileId, treeItems],
+	);
+	const { data: fileData, isLoading: placeholdersLoading } = useFilePlaceholders(
+		id,
+		selectedFileId,
+	);
+	const placeholders = useMemo(
+		() => mapPlaceholdersToEditable(fileData?.placeholders ?? []),
+		[fileData],
+	);
+	const editingPlaceholder = useMemo(
+		() =>
+			placeholders.find(placeholder => placeholder.id === editingPlaceholderId) ??
+			null,
+		[editingPlaceholderId, placeholders],
+	);
+
+	const logoAsset = assets.find(item => item.asset_type === 'logo');
+	const signatureAsset = assets.find(item => item.asset_type === 'signature');
+	const totalRequired = completion?.required_total ?? summary.totalPlaceholders;
+	const resolvedRequired =
 		completion?.required_resolved ??
-		flatFiles.reduce((sum, item) => sum + item.placeholder_resolved, 0);
+		Math.max(summary.totalPlaceholders - summary.unresolvedPlaceholders, 0);
+	const missingRequired = Math.max(totalRequired - resolvedRequired, 0);
 	const allComplete =
 		completion?.is_complete_required ??
-		(totalPlaceholders === 0 || resolvedPlaceholders === totalPlaceholders);
-	const { open: completionDialogOpen, setOpen: setCompletionDialogOpen } =
-		useCompletionTransitionModal(completion?.is_complete_required);
+		(totalRequired === 0 || resolvedRequired >= totalRequired);
+	const currentStep = buildCurrentStep({
+		filesScanned: summary.filesScanned,
+		selectedFile,
+		totalPlaceholders: summary.totalPlaceholders,
+		allComplete,
+	});
+	const currentTextValue =
+		editingPlaceholder?.type === 'text'
+			? draftValues[editingPlaceholder.raw.key] ?? editingPlaceholder.value
+			: '';
+	const currentAssetPreviewUrl =
+		editingPlaceholder?.type === 'signature'
+			? signatureAsset?.preview_url ?? signatureAsset?.download_url ?? null
+			: editingPlaceholder?.type === 'image'
+				? logoAsset?.preview_url ?? logoAsset?.download_url ?? null
+				: null;
+	const isPlaceholderSaving =
+		savePlaceholders.isPending ||
+		uploadWorkspaceAsset.isPending ||
+		saveSignature.isPending ||
+		deleteWorkspaceAsset.isPending;
 
-  const selectedFile = useMemo(
-    () => flatFiles.find(file => file.id === selectedFileId) ?? null,
-    [flatFiles, selectedFileId],
-  );
-  const selectedVersion = useMemo(
-    () => versions.find(version => version.version_number === selectedVersionNumber) ?? null,
-    [versions, selectedVersionNumber],
-  );
+	useEffect(() => {
+		setPreferredReferenceIdState(getPreferredReferenceId(id));
+	}, [id]);
 
-  const { data: fileData, isLoading: placeholdersLoading } = useFilePlaceholders(id, selectedFileId);
+	useEffect(() => {
+		if (!fileData) {
+			setDraftValues({});
+			return;
+		}
 
-  const textPlaceholders = useMemo(
-    () => (fileData?.placeholders ?? []).filter(item => item.kind === 'TEXT'),
-    [fileData],
-  );
-  const assetPlaceholders = useMemo(
-    () => (fileData?.placeholders ?? []).filter(item => item.kind === 'ASSET'),
-    [fileData],
-  );
+		const nextDraftValues: Record<string, string> = {};
+		for (const placeholder of fileData.placeholders) {
+			if (placeholder.kind !== 'TEXT') continue;
+			nextDraftValues[placeholder.key] = placeholder.value_text ?? '';
+		}
+		setDraftValues(nextDraftValues);
+	}, [fileData]);
 
-  useEffect(() => {
-    if (!fileData) return;
-    const next: Record<string, string> = {};
-    for (const placeholder of fileData.placeholders) {
-      if (placeholder.kind !== 'TEXT') continue;
-      next[placeholder.key] = placeholder.value_text ?? '';
-    }
-    setVariableValues(next);
-  }, [fileData]);
+	useEffect(() => {
+		const visibleSelected = findFileTreeItem(treeItems, selectedFileId);
+		if (visibleSelected) return;
 
-  useEffect(() => {
-    if (selectedVersionNumber === null) return;
-    const stillPresent = versions.some(version => version.version_number === selectedVersionNumber);
-    if (!stillPresent) {
-      setSelectedVersionNumber(null);
-    }
-  }, [selectedVersionNumber, versions]);
+		const fallback =
+			findFirstVisibleFile(treeItems) ?? findFirstActionableFile(tree);
+		setSelectedFileId(fallback?.id ?? null);
+	}, [selectedFileId, tree, treeItems]);
 
-  if (handbookLoading || clientLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Spinner />
-      </div>
-    );
-  }
+	useEffect(() => {
+		setPlaceholderFilters({
+			search: '',
+			status: 'all',
+			type: 'all',
+		});
+	}, [selectedFileId]);
 
-  if (!handbook || !client) {
-    return <div className="p-8 text-gray-500">Handbuch nicht gefunden.</div>;
-  }
+	if (handbookLoading || clientLoading) {
+		return (
+			<div className="flex h-64 items-center justify-center">
+				<Spinner />
+			</div>
+		);
+	}
 
-  async function handleUploadZip(file: File) {
-		setZipUploadError(null);
-		setSelectedZipFile(file);
+	if (!handbook || !client) {
+		return <div className="p-8 text-gray-500">Document workspace not found.</div>;
+	}
+
+	async function handleUpload(files: File[]) {
+		setUploadError(null);
 		try {
-			const result = await uploadZip.mutateAsync(file);
-			toast.success(`ZIP verarbeitet: ${result.summary.files_total} Dateien`);
+			const archive = await createHandbookUploadArchive(files);
+			const result = await uploadZip.mutateAsync(archive);
+			const firstFile = findFirstActionableFile(result.tree);
+
+			setLatestUpload({
+				sourceType: isZipUpload(archive) && files.length === 1 ? 'zip' : 'files',
+				fileCount: result.summary.files_total,
+				label:
+					isZipUpload(archive) && files.length === 1
+						? archive.name
+						: `${fileLabel(files.length)} selected`,
+				warnings: result.warnings.map(item => item.message),
+			});
+			setShowAllFiles(false);
+			setSelectedFileId(firstFile?.id ?? null);
+			toast.success(
+				result.summary.files_total === 1
+					? 'Document package uploaded successfully.'
+					: `${result.summary.files_total} files were uploaded successfully.`,
+			);
 			if (result.warnings.length > 0) {
 				toast.warning(
-					`${result.warnings.length} ZIP-Eintraege wurden uebersprungen.`,
+					`${result.warnings.length} file${result.warnings.length === 1 ? '' : 's'} need review.`,
 				);
-			}
-
-			const parsedFile = result.files.find(
-				item => item.parse_status !== 'FAILED',
-			);
-			if (parsedFile) {
-				setSelectedFileId(parsedFile.id);
-				setSelectedPath(parsedFile.path_in_handbook);
 			}
 		} catch (error) {
 			const message =
-				error instanceof Error ? error.message : 'ZIP Upload fehlgeschlagen';
-			setZipUploadError(message);
+				error instanceof Error ? error.message : 'Document upload failed.';
+			setUploadError(message);
 			toast.error(message);
 		}
 	}
 
-  async function handleUploadAsset(file: File, assetType: 'logo' | 'signature') {
-    try {
-      await uploadAsset.mutateAsync({ file, assetType });
-      toast.success(`${assetType === 'logo' ? 'Logo' : 'Signatur'} gespeichert`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Asset Upload fehlgeschlagen');
-    }
-  }
+	function updateDraftValue(value: string) {
+		if (!editingPlaceholder || editingPlaceholder.type !== 'text') return;
+		setDraftValues(previous => ({
+			...previous,
+			[editingPlaceholder.raw.key]: value,
+		}));
+	}
 
-  async function handleRemoveAsset(assetType: 'logo' | 'signature') {
-    try {
-      await deleteAsset.mutateAsync({ assetType });
-      toast.success(`${assetType === 'logo' ? 'Logo' : 'Signatur'} entfernt`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Asset loeschen fehlgeschlagen');
-    }
-  }
+	async function handleSaveTextPlaceholder() {
+		if (!selectedFileId || !editingPlaceholder) return;
 
-  function selectFileByPath(path: string) {
-    setSelectedPath(path);
-    const selected = flatFiles.find(item => item.path === path);
-    setSelectedFileId(selected?.id ?? null);
-  }
-
-  async function handleAiFill(key: string, required: boolean) {
-    if (!client || !handbook) {
-      toast.error('Handbuch- oder Kundendaten nicht geladen');
-      return;
-    }
-    if (!selectedFileId || !selectedFile) {
-      toast.error('Bitte zuerst eine Datei auswaehlen');
-      return;
-    }
-    if (!aiInstruction.trim()) {
-      toast.error('Bitte globale AI-Anweisung ausfuellen');
-      return;
-    }
-
-    try {
-      const result = await aiFill.mutateAsync({
-        fileId: selectedFileId,
-        placeholderKey: key,
-        currentValue: variableValues[key] ?? '',
-        instruction: aiInstruction,
-        language: aiLanguage,
-        context: {
-          customer: {
-            name: client.name,
-            address: client.address,
-            zip_city: client.zipCity,
-            ceo: client.ceo,
-            qm_manager: client.qmManager,
-            industry: client.industry,
-            products: client.products,
-            services: client.services,
-          },
-          handbook_type: handbook.type,
-          file_path: selectedFile.path,
-        },
-        constraints: {
-          max_length: 800,
-          required,
-        },
-      });
-
-      setVariableValues(prev => ({ ...prev, [key]: result.value }));
-      toast.success(`AI-Wert fuer ${key} aktualisiert`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'AI Fill fehlgeschlagen');
-    }
-  }
-
-  async function handleSavePlaceholders() {
-    if (!selectedFileId) {
-      toast.error('Bitte zuerst eine Datei auswaehlen');
-      return;
-    }
-
-    try {
-      const values = textPlaceholders.map(item => ({
-        key: item.key,
-        value_text: variableValues[item.key] ?? '',
-      }));
-      await savePlaceholders.mutateAsync({ fileId: selectedFileId, values, source: 'MANUAL' });
-      toast.success('Platzhalter gespeichert');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Speichern fehlgeschlagen');
-    }
-  }
-
-  async function handleSaveSignature(file: File) {
 		try {
-			await saveSignature.mutateAsync({
-				file,
-				filename: 'signature-canvas.png',
+			await savePlaceholders.mutateAsync({
+				fileId: selectedFileId,
+				values: [
+					{
+						key: editingPlaceholder.raw.key,
+						value_text: draftValues[editingPlaceholder.raw.key] ?? '',
+						source: 'MANUAL',
+					},
+				],
+				source: 'MANUAL',
 			});
-			toast.success('Signatur gespeichert');
+			toast.success('Placeholder saved.');
+			setEditingPlaceholderId(null);
+			setAiDialogOpen(false);
 		} catch (error) {
 			toast.error(
-				error instanceof Error
-					? error.message
-					: 'Signatur speichern fehlgeschlagen',
+				error instanceof Error ? error.message : 'Saving the placeholder failed.',
 			);
 		}
 	}
 
-	async function handleCreateVersion(reason = 'manual_completion') {
+	async function handleSaveImagePlaceholder(file: File) {
+		if (!editingPlaceholder) return;
+
+		try {
+			await uploadWorkspaceAsset.mutateAsync({
+				file,
+				assetType: getPlaceholderAssetType(editingPlaceholder),
+			});
+			toast.success('Image saved.');
+			setEditingPlaceholderId(null);
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : 'Saving the image failed.',
+			);
+		}
+	}
+
+	async function handleSaveSignature(dataUrl: string) {
+		try {
+			await saveSignature.mutateAsync({ dataUrl });
+			toast.success('Signature saved.');
+			setEditingPlaceholderId(null);
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : 'Saving the signature failed.',
+			);
+		}
+	}
+
+	async function handleClearPlaceholder(placeholder: EditablePlaceholder) {
+		if (!selectedFileId) return;
+
+		try {
+			setClearingPlaceholderId(placeholder.id);
+			if (placeholder.type === 'text') {
+				await savePlaceholders.mutateAsync({
+					fileId: selectedFileId,
+					values: [
+						{
+							key: placeholder.raw.key,
+							value_text: '',
+							source: 'MANUAL',
+						},
+					],
+					source: 'MANUAL',
+				});
+			} else {
+				await deleteWorkspaceAsset.mutateAsync({
+					assetType: getPlaceholderAssetType(placeholder),
+				});
+			}
+			toast.success(`${placeholder.label} cleared.`);
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : 'Clearing the placeholder failed.',
+			);
+		} finally {
+			setClearingPlaceholderId(null);
+		}
+	}
+
+	async function handleGenerateWithAi(input: {
+		industry: string;
+		instruction: string;
+		referenceId: string | null;
+	}) {
+		if (!selectedFileId || !selectedFile || !editingPlaceholder) {
+			throw new Error('Open a file and placeholder first.');
+		}
+
+		const extraInstruction = [
+			input.industry.trim()
+				? `Company industry: ${input.industry.trim()}.`
+				: '',
+			input.instruction.trim(),
+		]
+			.filter(Boolean)
+			.join('\n');
+
+		const result = await composePlaceholder.mutateAsync({
+			fileId: selectedFileId,
+			placeholderKey: editingPlaceholder.raw.key,
+			currentValue: draftValues[editingPlaceholder.raw.key] ?? '',
+			instruction:
+				extraInstruction ||
+				`Create a clear and professional value for ${editingPlaceholder.label}.`,
+			language: 'de-DE',
+			outputStyle: 'formal',
+			referenceScope: 'handbook',
+			referenceDocumentIds: input.referenceId ? [input.referenceId] : [],
+			useFileContext: true,
+			constraints: {
+				max_length:
+					editingPlaceholder.raw.suggested_output_class === 'short' ? 220 : 1600,
+				required: editingPlaceholder.raw.required,
+			},
+			modeHint: editingPlaceholder.raw.suggested_mode,
+		});
+
+		if (input.referenceId) {
+			setPreferredReferenceId(id, input.referenceId);
+			setPreferredReferenceIdState(input.referenceId);
+		}
+
+		toast.success('AI draft created.');
+		return result.value;
+	}
+
+	async function buildMissingPlaceholderItems() {
+		const incompleteFiles = collectIncompleteFiles(completion);
+		if (incompleteFiles.length === 0) return [];
+
+		const payload = await Promise.all(
+			incompleteFiles.map(async file => {
+				const response = await fetchHandbookFilePlaceholders(id, file.fileId);
+				return response.placeholders
+					.filter(placeholder => placeholder.required && !placeholder.resolved)
+					.map(placeholder => ({
+						fileId: file.fileId,
+						filePath: file.filePath,
+						name: placeholder.key,
+						label: humanizePlaceholderLabel(placeholder.key),
+					}));
+			}),
+		);
+
+		return payload.flat();
+	}
+
+	async function handleGenerateDocument() {
+		if (!allComplete) {
+			try {
+				setMissingDialogLoading(true);
+				const items = await buildMissingPlaceholderItems();
+				setMissingItems(items);
+				setMissingDialogOpen(true);
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: 'Could not load missing placeholders.',
+				);
+			} finally {
+				setMissingDialogLoading(false);
+			}
+			return;
+		}
+
+		try {
+			const result = await exportHandbook.mutateAsync();
+			triggerBrowserDownload(result.blob, result.filename);
+			toast.success('Document package generated successfully.');
+		} catch (error) {
+			const details = (
+				error as Error & { details?: { errors?: Array<{ message?: string }> } }
+			).details;
+			if (details && Array.isArray(details.errors) && details.errors.length > 0) {
+				toast.error(details.errors[0].message ?? 'Generation is blocked.');
+				return;
+			}
+			toast.error(
+				error instanceof Error ? error.message : 'Document generation failed.',
+			);
+		}
+	}
+
+	function handleReviewMissing() {
+		const firstItem = missingItems[0];
+		if (!firstItem) return;
+		setSelectedFileId(firstItem.fileId);
+		setTreeSheetOpen(false);
+	}
+
+	async function handleCreateSnapshot() {
 		try {
 			const result = await createVersion.mutateAsync({
 				createdBy: 'user',
-				reason,
+				reason: 'manual_snapshot',
 			});
-			setSelectedVersionNumber(result.snapshot.version_number);
-			setCompletionDialogOpen(false);
 			if (result.created) {
-				toast.success(`Version v${result.snapshot.version_number} erstellt`);
-			} else {
-				toast.info(`Keine Aenderung seit v${result.snapshot.version_number}`);
+				toast.success(`Snapshot v${result.snapshot.version_number} created.`);
+				return;
 			}
+			toast.info(`No changes since v${result.snapshot.version_number}.`);
 		} catch (error) {
 			toast.error(
-				error instanceof Error
-					? error.message
-					: 'Version erstellen fehlgeschlagen',
+				error instanceof Error ? error.message : 'Creating the snapshot failed.',
 			);
 		}
 	}
 
-  async function handleExport() {
-    try {
-      const result = await exportHandbook.mutateAsync();
-      triggerBrowserDownload(result.blob, result.filename);
-      toast.success('Export erfolgreich erstellt');
-    } catch (error) {
-      const details = (error as Error & { details?: { errors?: Array<{ message?: string }> } }).details;
-      if (details && Array.isArray(details.errors) && details.errors.length > 0) {
-        toast.error(details.errors[0].message ?? 'Export blockiert: Pflichtwerte fehlen');
-      } else {
-        toast.error(error instanceof Error ? error.message : 'Export fehlgeschlagen');
-      }
-    }
-  }
+	async function handleDownloadVersion(versionNumber: number) {
+		try {
+			const result = await downloadVersion.mutateAsync(versionNumber);
+			triggerBrowserDownload(result.blob, result.filename);
+			toast.success(`Snapshot v${versionNumber} downloaded.`);
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : 'Downloading the snapshot failed.',
+			);
+		}
+	}
 
-  async function handleDeleteVersion(versionNumber: number) {
-    if (!confirm(`Version ${versionNumber} loeschen?`)) return;
-    try {
-      await deleteVersion.mutateAsync(versionNumber);
-      if (selectedVersionNumber === versionNumber) {
-        setSelectedVersionNumber(null);
-      }
-      toast.success(`Version ${versionNumber} geloescht`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Version loeschen fehlgeschlagen');
-    }
-  }
+	async function handleDeleteVersion(versionNumber: number) {
+		if (!confirm(`Delete snapshot v${versionNumber}?`)) return;
+		try {
+			await deleteVersion.mutateAsync(versionNumber);
+			toast.success(`Snapshot v${versionNumber} deleted.`);
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : 'Deleting the snapshot failed.',
+			);
+		}
+	}
 
-  async function handleDownloadSelectedVersion() {
-    if (!selectedVersionNumber) {
-      toast.error('Bitte zuerst eine Version auswaehlen');
-      return;
-    }
-    if (!selectedVersion?.downloadable) {
-      toast.error('Die ausgewaehlte Version ist nicht downloadbar');
-      return;
-    }
-
-    try {
-      const result = await downloadVersion.mutateAsync(selectedVersionNumber);
-      triggerBrowserDownload(result.blob, result.filename);
-      toast.success(`Version v${selectedVersionNumber} heruntergeladen`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Version Download fehlgeschlagen');
-    }
-  }
-
-  const logoAsset = assets.find(item => item.asset_type === 'logo');
-  const signatureAsset = assets.find(item => item.asset_type === 'signature');
-
-  return (
-		<div className="flex flex-col h-screen overflow-hidden">
+	return (
+		<div className="min-h-screen bg-slate-50">
 			<Header
-				title={`${handbook.type} Handbuch`}
-				subtitle={`${client.name} · ${resolvedPlaceholders}/${totalPlaceholders} Pflicht-Platzhalter geloest`}
-				actions={<Badge variant="blue">{handbook.status}</Badge>}
+				title="Documents"
+				subtitle={`${client.name} · ${fileLabel(summary.filesScanned)} scanned`}
+				actions={
+					<div className="flex items-center gap-2">
+						<Badge variant={missingRequired === 0 ? 'green' : 'orange'}>
+							{resolvedRequired}/{totalRequired} required filled
+						</Badge>
+						<Button asChild size="sm" variant="outline">
+							<Link href={`/handbooks/${id}/reference-files`}>Reference Files</Link>
+						</Button>
+						<Button size="sm" variant="outline" onClick={() => setActionsOpen(true)}>
+							More Actions
+						</Button>
+						<Button
+							size="sm"
+							onClick={() => void handleGenerateDocument()}
+							loading={exportHandbook.isPending || missingDialogLoading}
+						>
+							<WandSparkles className="h-4 w-4" />
+							Generate Output
+						</Button>
+					</div>
+				}
 			/>
 
-			<div className="flex-1 overflow-y-auto px-8 py-6">
-				<div className="grid grid-cols-3 gap-6">
-					<div className="col-span-2 space-y-4">
-						<Card>
-							<CardHeader>
-								<h3 className="text-sm font-semibold text-gray-900">
-									ZIP Upload
-								</h3>
-							</CardHeader>
-							<CardContent>
-								<ZipDropzone
-									loading={uploadZip.isPending}
-									selectedFile={selectedZipFile}
-									error={zipUploadError}
-									onFileSelected={file => {
-										void handleUploadZip(file);
+			<div className="mx-auto max-w-7xl space-y-6 px-4 py-6 md:px-8">
+				<UploadProgressSteps currentStep={currentStep} />
+
+				<div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+					<div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+						<div className="space-y-2">
+							<Badge variant="blue">Step 1</Badge>
+							<h2 className="text-2xl font-semibold text-slate-900">
+								Upload your template package
+							</h2>
+							<p className="max-w-2xl text-sm text-slate-600">
+								Use a ZIP file to restore the full project structure automatically.
+								You can still upload individual files if needed.
+							</p>
+						</div>
+
+						<div className="mt-6">
+							<ZipUploadDropzone
+								loading={uploadZip.isPending}
+								error={uploadError}
+								onUpload={handleUpload}
+							/>
+						</div>
+					</div>
+
+					<div className="space-y-6">
+						<UploadSummaryCard
+							sourceType={latestUpload?.sourceType ?? null}
+							fileCount={latestUpload?.fileCount ?? 0}
+							label={latestUpload?.label}
+							warnings={latestUpload?.warnings ?? []}
+						/>
+						<ScanSummary summary={summary} />
+					</div>
+				</div>
+
+				<div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+					<div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-5">
+						<div className="space-y-2">
+							<Badge variant="gray">Steps 2 to 4</Badge>
+							<h3 className="text-xl font-semibold text-slate-900">
+								Review extracted files and fill placeholders
+							</h3>
+							<p className="max-w-3xl text-sm text-slate-500">
+								Select a file from the tree to work only on the placeholders that
+								belong to that file. Reference material stays separate so the main
+								workflow remains simple.
+							</p>
+						</div>
+						<div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+							<div className="flex items-center gap-2">
+								<FileArchive className="h-4 w-4" />
+								<span>
+									{summary.filesWithPlaceholders} files with placeholders,{' '}
+									{summary.unresolvedPlaceholders} still empty
+								</span>
+							</div>
+						</div>
+					</div>
+
+					{treeLoading ? (
+						<div className="flex justify-center py-16">
+							<Spinner />
+						</div>
+					) : (
+						<div className="mt-6 grid gap-6 md:grid-cols-[340px_minmax(0,1fr)]">
+							<div className="hidden md:block">
+								<FileTreePanel
+									items={treeItems}
+									showAllFiles={showAllFiles}
+									totalFileCount={summary.filesScanned}
+									selectedFileId={selectedFileId}
+									onToggleShowAllFiles={() =>
+										setShowAllFiles(current => !current)
+									}
+									onSelectFile={fileId => {
+										setSelectedFileId(fileId);
+										setTreeSheetOpen(false);
 									}}
 								/>
-							</CardContent>
-						</Card>
+							</div>
 
-						<Card>
-							<CardHeader>
-								<h3 className="text-sm font-semibold text-gray-900">
-									Dateibaum
-								</h3>
-							</CardHeader>
-							<CardContent>
-								{treeLoading ? (
-									<div className="flex justify-center py-8">
-										<Spinner />
-									</div>
-								) : (
-									<FileTree
-										nodes={treeResponse as any}
-										selectedPath={selectedPath}
-										onSelectFile={selectFileByPath}
-									/>
-								)}
-							</CardContent>
-						</Card>
-
-						{selectedFile && (
-							<Card>
-								<CardHeader>
-									<h3 className="text-sm font-semibold text-gray-900">
-										{selectedFile.name}
-									</h3>
-									<p className="text-xs text-gray-500">{selectedFile.path}</p>
-								</CardHeader>
-								<CardContent className="space-y-4">
-									<div className="space-y-2 rounded border border-gray-200 bg-gray-50 p-3">
-										<Label className="text-xs">Globale AI-Anweisung</Label>
-										<Textarea
-											rows={3}
-											value={aiInstruction}
-											onChange={event => setAiInstruction(event.target.value)}
-											placeholder="Beispiel: Formuliere ISO/SCC-konform, praezise und sachlich."
-										/>
-										<div className="flex items-center gap-2">
-											<Label className="text-xs">Sprache</Label>
-											<select
-												value={aiLanguage}
-												onChange={event =>
-													setAiLanguage(event.target.value as 'de-DE' | 'en-US')
-												}
-												className="h-8 rounded border border-gray-200 bg-white px-2 text-xs"
-											>
-												<option value="de-DE">Deutsch (de-DE)</option>
-												<option value="en-US">English (en-US)</option>
-											</select>
-										</div>
-									</div>
-
-									{placeholdersLoading ? (
-										<div className="flex justify-center py-8">
-											<Spinner />
-										</div>
-									) : (
-										<>
-											<div className="space-y-2">
-												<h4 className="text-xs font-semibold text-gray-700">
-													Text-Platzhalter
-												</h4>
-												{textPlaceholders.length === 0 ? (
-													<p className="text-xs text-gray-500">
-														Keine Text-Platzhalter in dieser Datei.
-													</p>
-												) : (
-													textPlaceholders.map(item => {
-														const currentValue = variableValues[item.key] ?? '';
-														const isUnresolved =
-															Boolean(item.required) &&
-															currentValue.trim() === '';
-														return (
-															<div
-																key={item.id}
-																className="space-y-1"
-															>
-																<Label
-																	className={
-																		isUnresolved
-																			? 'text-xs text-orange-800'
-																			: 'text-xs'
-																	}
-																>
-																	{item.key}
-																	{item.required ? ' *' : ' (optional)'}
-																</Label>
-																<div className="flex w-full items-center gap-2">
-																	<div className="flex-1 min-w-0">
-																		<Input
-																			value={currentValue}
-																			className={
-																				isUnresolved
-																					? 'border-orange-300 focus-visible:ring-orange-500'
-																					: undefined
-																			}
-																			onChange={event =>
-																				setVariableValues(prev => ({
-																					...prev,
-																					[item.key]: event.target.value,
-																				}))
-																			}
-																		/>
-																	</div>
-																	<Button
-																		size="sm"
-																		variant="outline"
-																		loading={aiFill.isPending}
-																		onClick={() =>
-																			void handleAiFill(
-																				item.key,
-																				Boolean(item.required),
-																			)
-																		}
-																	>
-																		AI
-																	</Button>
-																</div>
-															</div>
-														);
-													})
-												)}
-											</div>
-
-											<div className="space-y-2">
-												<h4 className="text-xs font-semibold text-gray-700">
-													Asset-Platzhalter
-												</h4>
-												{assetPlaceholders.length === 0 ? (
-													<p className="text-xs text-gray-500">
-														Keine Asset-Platzhalter in dieser Datei.
-													</p>
-												) : (
-													<div className="rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700 space-y-1">
-														{assetPlaceholders.map(item => (
-															<p key={item.id}>
-																{item.key}
-																{item.required ? ' *' : ''} ·{' '}
-																{item.resolved ? 'gelöst' : 'offen'}
-															</p>
-														))}
-													</div>
-												)}
-											</div>
-
-											<div className="flex items-center gap-2">
-												<Button
-													onClick={handleSavePlaceholders}
-													loading={savePlaceholders.isPending}
-												>
-													Platzhalter speichern
-												</Button>
-												{fileData?.completion && (
-													<Badge
-														variant={
-															fileData.completion.is_complete
-																? 'green'
-																: 'orange'
-														}
-													>
-														Datei: {fileData.completion.resolved}/
-														{fileData.completion.total}
-													</Badge>
-												)}
-											</div>
-										</>
-									)}
-								</CardContent>
-							</Card>
-						)}
-					</div>
-
-					<div className="space-y-4">
-						<Card>
-							<CardHeader>
-								<h3 className="text-sm font-semibold text-gray-900">Assets</h3>
-							</CardHeader>
-							<CardContent className="space-y-3">
-								<AssetSlotCard
-									title="Logo"
-									assetType="logo"
-									canonicalKey="assets.logo"
-									aliases={['{{assets.logo}}', '__ASSET_LOGO__', '[LOGO]']}
-									asset={logoAsset}
-									busy={uploadAsset.isPending || deleteAsset.isPending}
-									onUpload={handleUploadAsset}
-									onRemove={handleRemoveAsset}
-								/>
-								<SignatureCanvasCard
-									asset={signatureAsset}
-									busy={saveSignature.isPending || deleteAsset.isPending}
-									onSave={handleSaveSignature}
-									onRemove={() => handleRemoveAsset('signature')}
-								/>
-							</CardContent>
-						</Card>
-
-						<Card>
-							<CardHeader>
-								<h3 className="text-sm font-semibold text-gray-900">
-									Fortschritt
-								</h3>
-							</CardHeader>
-							<CardContent className="space-y-3 text-xs">
-								<p>
-									Gesamt: <strong>{resolvedPlaceholders}</strong> /{' '}
-									<strong>{totalPlaceholders}</strong>
-								</p>
-								<Button
-									onClick={handleExport}
-									loading={exportHandbook.isPending}
-									disabled={!allComplete}
-								>
-									Export ZIP
-								</Button>
-								{!allComplete && (
-									<p className="text-amber-700">
-										Export ist erst möglich, wenn alle Pflicht-Platzhalter
-										gelöst sind.
-									</p>
-								)}
-							</CardContent>
-						</Card>
-
-						<Card>
-							<CardHeader>
-								<h3 className="text-sm font-semibold text-gray-900">
-									Versionen
-								</h3>
-							</CardHeader>
-							<CardContent className="space-y-2">
-								<Button
-									size="sm"
-									onClick={() => void handleCreateVersion('manual_click')}
-									loading={createVersion.isPending}
-									disabled={!allComplete}
-								>
-									Neue Version erstellen
-								</Button>
-								<Button
-									size="sm"
-									variant="outline"
-									disabled={!selectedVersion?.downloadable}
-									loading={downloadVersion.isPending}
-									onClick={handleDownloadSelectedVersion}
-								>
-									Ausgewaehlte Version herunterladen
-								</Button>
-								{versions.length === 0 ? (
-									<p className="text-xs text-gray-500">
-										Keine Snapshots vorhanden.
-									</p>
-								) : (
-									versions.map(version => (
-										<div
-											key={version.id}
-											className="flex items-center justify-between rounded border border-gray-100 px-2 py-1.5 text-xs"
-										>
-											<label className="flex min-w-0 items-center gap-2">
-												<input
-													type="checkbox"
-													checked={
-														selectedVersionNumber === version.version_number
-													}
-													onChange={event =>
-														setSelectedVersionNumber(
-															event.target.checked
-																? version.version_number
-																: null,
-														)
-													}
-													className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-												/>
-												<span>v{version.version_number}</span>
-												<Badge
-													variant={version.downloadable ? 'green' : 'gray'}
-												>
-													{version.downloadable
-														? 'downloadbar'
-														: 'nicht downloadbar'}
-												</Badge>
-											</label>
-											<div className="flex items-center gap-1">
-												<Button
-													size="sm"
-													variant="ghost"
-													className="h-7 px-2 text-red-600"
-													onClick={() =>
-														void handleDeleteVersion(version.version_number)
-													}
-												>
-													Löschen
-												</Button>
-											</div>
-										</div>
-									))
-								)}
-							</CardContent>
-						</Card>
-					</div>
+							<PlaceholderWorkspacePanel
+								selectedFile={selectedFile}
+								loading={placeholdersLoading}
+								placeholders={placeholders}
+								filters={placeholderFilters}
+								onFiltersChange={setPlaceholderFilters}
+								onEdit={placeholder => {
+									setEditingPlaceholderId(placeholder.id);
+									setAiDialogOpen(false);
+								}}
+								onAutofill={placeholder => {
+									setEditingPlaceholderId(placeholder.id);
+									setAiDialogOpen(true);
+								}}
+								onClear={placeholder => void handleClearPlaceholder(placeholder)}
+								clearingPlaceholderId={clearingPlaceholderId}
+								onOpenTree={() => setTreeSheetOpen(true)}
+							/>
+						</div>
+					)}
 				</div>
 			</div>
 
-			<Dialog
-				open={completionDialogOpen}
-				onOpenChange={setCompletionDialogOpen}
-			>
-				<DialogContent>
-					<DialogHeader>
-						<DialogTitle>Alle Pflicht-Platzhalter sind geloest</DialogTitle>
-						<DialogDescription>
-							Moechtest du jetzt eine neue Version als Snapshot anlegen?
-						</DialogDescription>
-					</DialogHeader>
+			<ScrollableSheet open={treeSheetOpen} onOpenChange={setTreeSheetOpen}>
+				<ScrollableSheetContent side="left" className="md:hidden">
+					<ScrollableSheetHeader>
+						<ScrollableSheetTitle>Project Files</ScrollableSheetTitle>
+						<ScrollableSheetDescription>
+							Select a file to review its placeholders.
+						</ScrollableSheetDescription>
+					</ScrollableSheetHeader>
+					<ScrollableSheetBody className="p-0">
+						<FileTreePanel
+							items={treeItems}
+							showAllFiles={showAllFiles}
+							totalFileCount={summary.filesScanned}
+							selectedFileId={selectedFileId}
+							onToggleShowAllFiles={() => setShowAllFiles(current => !current)}
+							onSelectFile={fileId => {
+								setSelectedFileId(fileId);
+								setTreeSheetOpen(false);
+							}}
+						/>
+					</ScrollableSheetBody>
+				</ScrollableSheetContent>
+			</ScrollableSheet>
 
-					<div className="space-y-2 rounded border border-gray-100 bg-gray-50 p-3 text-xs text-gray-700">
-						<p>
-							<strong>Handbuch:</strong> {handbook.type}
-						</p>
-						<p>
-							<strong>Kunde:</strong> {client.name}
-						</p>
-						<p>
-							<strong>Pflicht-Platzhalter:</strong> {resolvedPlaceholders}/
-							{totalPlaceholders}
-						</p>
-						<p>
-							<strong>Zeitpunkt:</strong> {new Date().toLocaleString('de-DE')}
-						</p>
-					</div>
+			<PlaceholderEditorDialog
+				open={Boolean(editingPlaceholder)}
+				onOpenChange={open => {
+					if (!open) {
+						setEditingPlaceholderId(null);
+						setAiDialogOpen(false);
+					}
+				}}
+				placeholder={editingPlaceholder}
+				value={currentTextValue}
+				onValueChange={updateDraftValue}
+				onSaveText={handleSaveTextPlaceholder}
+				onSaveImage={handleSaveImagePlaceholder}
+				onSaveSignature={handleSaveSignature}
+				onGenerateWithAi={handleGenerateWithAi}
+				referenceFiles={referenceFiles}
+				defaultIndustry={client.industry}
+				defaultReferenceId={preferredReferenceId}
+				assetPreviewUrl={currentAssetPreviewUrl}
+				saving={isPlaceholderSaving}
+				aiLoading={composePlaceholder.isPending}
+				aiOpen={aiDialogOpen}
+				onAiOpenChange={setAiDialogOpen}
+			/>
 
-					<DialogFooter>
-						<Button
-							variant="outline"
-							onClick={() => setCompletionDialogOpen(false)}
-						>
-							Not now
-						</Button>
-						<Button
-							loading={createVersion.isPending}
-							onClick={() => void handleCreateVersion('completion_transition')}
-						>
-							Create version
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+			<MissingPlaceholdersDialog
+				open={missingDialogOpen}
+				onOpenChange={setMissingDialogOpen}
+				items={missingItems}
+				onFillNow={handleReviewMissing}
+			/>
+
+			<ScrollableDialog open={actionsOpen} onOpenChange={setActionsOpen}>
+				<ScrollableDialogContent size="xl">
+					<ScrollableDialogHeader>
+						<ScrollableDialogTitle>More Actions</ScrollableDialogTitle>
+						<ScrollableDialogDescription>
+							Access snapshots and supporting tools without adding extra clutter to
+							the main workspace.
+						</ScrollableDialogDescription>
+					</ScrollableDialogHeader>
+
+					<ScrollableDialogBody className="space-y-6">
+						<div className="flex flex-wrap gap-2">
+							<Button asChild variant="outline">
+								<Link href={`/handbooks/${id}/reference-files`}>Open Reference Files</Link>
+							</Button>
+							<Button
+								onClick={() => void handleCreateSnapshot()}
+								loading={createVersion.isPending}
+							>
+								Create Snapshot
+							</Button>
+						</div>
+
+						<div className="space-y-3">
+							<h3 className="text-sm font-semibold text-slate-900">Snapshots</h3>
+							{versions.length === 0 ? (
+								<div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+									No snapshots created yet.
+								</div>
+							) : (
+								<div className="space-y-3">
+									{versions.map(version => (
+										<div
+											key={version.id}
+											className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
+										>
+											<div>
+												<p className="font-medium text-slate-900">
+													Snapshot v{version.version_number}
+												</p>
+												<p className="text-sm text-slate-500">
+													Created {new Date(version.created_at).toLocaleString('de-DE')}
+												</p>
+											</div>
+											<div className="flex flex-wrap gap-2">
+												<Button
+													size="sm"
+													variant="outline"
+													onClick={() => void handleDownloadVersion(version.version_number)}
+													loading={
+														downloadVersion.isPending &&
+														downloadVersion.variables === version.version_number
+													}
+												>
+													Download
+												</Button>
+												<Button
+													size="sm"
+													variant="ghost"
+													className="text-red-600"
+													onClick={() => void handleDeleteVersion(version.version_number)}
+													loading={
+														deleteVersion.isPending &&
+														deleteVersion.variables === version.version_number
+													}
+												>
+													Delete
+												</Button>
+											</div>
+										</div>
+									))}
+								</div>
+							)}
+						</div>
+					</ScrollableDialogBody>
+				</ScrollableDialogContent>
+			</ScrollableDialog>
 		</div>
 	);
 }

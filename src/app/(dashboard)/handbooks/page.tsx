@@ -23,7 +23,7 @@ export default function HandbooksPage() {
 
   return (
     <div>
-      <Header title="Handbuecher" subtitle={`${handbooks.length} QM-Handbuecher`} />
+      <Header title="Dokumente" subtitle={`${handbooks.length} Dokumenten-Workspaces`} />
 
       <div className="px-8 py-6">
         {isLoading ? (
@@ -32,8 +32,8 @@ export default function HandbooksPage() {
           </div>
         ) : handbooks.length === 0 ? (
           <div className="text-center py-16 text-gray-500">
-            <p>Noch keine Handbuecher erstellt.</p>
-            <p className="text-sm mt-1">Oeffne einen Kunden und klicke auf "Handbuch erstellen".</p>
+            <p>Noch keine Dokumenten-Workspaces vorhanden.</p>
+            <p className="text-sm mt-1">Öffne einen Kunden und starte einen neuen Workspace.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 max-w-4xl">
@@ -50,7 +50,7 @@ export default function HandbooksPage() {
                             <p className="text-sm text-gray-500 mt-0.5">{client.name} · {client.industry}</p>
                           )}
                           <p className="text-xs text-gray-500 mt-3">
-                            Erstellt: {formatDate(item.created_at)}
+                            Workspace erstellt: {formatDate(item.created_at)}
                           </p>
                         </div>
                         <div className="flex flex-col items-end gap-1">

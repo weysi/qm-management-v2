@@ -45,7 +45,7 @@ const navItems = [
 	},
 	{
 		href: '/handbooks',
-		label: 'Handbücher',
+		label: 'Dokumente',
 		icon: (
 			<svg
 				className="w-5 h-5"

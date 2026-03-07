@@ -41,6 +41,10 @@ export function useUploadWorkspaceAsset(handbookId: string) {
     mutationFn: payload => uploadWorkspaceAsset({ handbookId, ...payload }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [ASSETS_KEY, handbookId] });
+      qc.invalidateQueries({ queryKey: ['handbook-completion', handbookId] });
+      qc.invalidateQueries({ queryKey: ['handbook-tree', handbookId] });
+      qc.invalidateQueries({ queryKey: ['handbook-file-placeholders', handbookId] });
+      qc.invalidateQueries({ queryKey: ['handbooks', handbookId] });
     },
   });
 }
@@ -53,6 +57,7 @@ export function useDeleteWorkspaceAsset(handbookId: string) {
       qc.invalidateQueries({ queryKey: [ASSETS_KEY, handbookId] });
       qc.invalidateQueries({ queryKey: ['handbook-completion', handbookId] });
       qc.invalidateQueries({ queryKey: ['handbook-tree', handbookId] });
+      qc.invalidateQueries({ queryKey: ['handbook-file-placeholders', handbookId] });
       qc.invalidateQueries({ queryKey: ['handbooks', handbookId] });
     },
   });
@@ -114,6 +119,7 @@ export function useSaveSignatureCanvas(handbookId: string) {
 
       qc.invalidateQueries({ queryKey: ['handbook-completion', handbookId] });
       qc.invalidateQueries({ queryKey: ['handbook-tree', handbookId] });
+      qc.invalidateQueries({ queryKey: ['handbook-file-placeholders', handbookId] });
       qc.invalidateQueries({ queryKey: ['handbooks', handbookId] });
     },
   });

@@ -258,6 +258,7 @@ class PlaceholderValue(models.Model):
         MANUAL = "MANUAL", "Manual"
         AI = "AI", "AI"
         IMPORTED = "IMPORTED", "Imported"
+        COMPOSED = "COMPOSED", "Composed"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     handbook = models.ForeignKey(
@@ -268,6 +269,13 @@ class PlaceholderValue(models.Model):
     key = models.CharField(max_length=255)
     value_text = models.TextField(null=True, blank=True)
     asset_id = models.UUIDField(null=True, blank=True)
+    last_generation_audit = models.ForeignKey(
+        "PlaceholderGenerationAudit",
+        on_delete=models.SET_NULL,
+        related_name="applied_values",
+        null=True,
+        blank=True,
+    )
     source = models.CharField(max_length=16, choices=Source.choices, default=Source.MANUAL)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -325,4 +333,188 @@ class PlaceholderParseCache(models.Model):
         ]
         indexes = [
             models.Index(fields=["file_type", "-updated_at"], name="docs_ppc_type_updated_idx"),
+        ]
+
+
+class ReferenceDocument(models.Model):
+    class FileType(models.TextChoices):
+        DOCX = "DOCX", "DOCX"
+        PPTX = "PPTX", "PPTX"
+        XLSX = "XLSX", "XLSX"
+        TXT = "TXT", "TXT"
+        MD = "MD", "MD"
+        PDF = "PDF", "PDF"
+        OTHER = "OTHER", "OTHER"
+
+    class ParseStatus(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        PARSED = "PARSED", "Parsed"
+        UNSUPPORTED = "UNSUPPORTED", "Unsupported"
+        FAILED = "FAILED", "Failed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    handbook = models.ForeignKey(
+        Handbook,
+        on_delete=models.CASCADE,
+        related_name="reference_documents",
+    )
+    original_filename = models.CharField(max_length=255)
+    file_type = models.CharField(max_length=8, choices=FileType.choices, default=FileType.OTHER)
+    mime_type = models.CharField(max_length=255, blank=True, default="")
+    storage_path = models.TextField()
+    normalized_storage_path = models.TextField(blank=True, default="")
+    checksum = models.CharField(max_length=64, blank=True, default="")
+    size_bytes = models.BigIntegerField(default=0)
+    parse_status = models.CharField(max_length=16, choices=ParseStatus.choices, default=ParseStatus.PENDING)
+    parse_error = models.TextField(blank=True, default="")
+    summary = models.TextField(blank=True, default="")
+    section_count = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "documents_reference_document"
+        indexes = [
+            models.Index(fields=["handbook", "-created_at"], name="docs_rd_hb_created_idx"),
+            models.Index(fields=["handbook", "parse_status"], name="docs_rd_hb_parse_idx"),
+        ]
+
+
+class ReferenceDocumentLink(models.Model):
+    class Scope(models.TextChoices):
+        HANDBOOK = "handbook", "Handbook"
+        FILE = "file", "File"
+        PLACEHOLDER = "placeholder", "Placeholder"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    reference_document = models.ForeignKey(
+        ReferenceDocument,
+        on_delete=models.CASCADE,
+        related_name="links",
+    )
+    handbook_file = models.ForeignKey(
+        HandbookFile,
+        on_delete=models.CASCADE,
+        related_name="reference_links",
+        null=True,
+        blank=True,
+    )
+    placeholder = models.ForeignKey(
+        Placeholder,
+        on_delete=models.CASCADE,
+        related_name="reference_links",
+        null=True,
+        blank=True,
+    )
+    scope = models.CharField(max_length=16, choices=Scope.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "documents_reference_document_link"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reference_document", "scope", "handbook_file", "placeholder"],
+                name="docs_reference_link_unique_target",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["reference_document", "scope"], name="docs_rdl_doc_scope_idx"),
+            models.Index(fields=["handbook_file", "scope"], name="docs_rdl_file_scope_idx"),
+            models.Index(fields=["placeholder", "scope"], name="docs_rdl_placeholder_scope_idx"),
+        ]
+
+
+class ReferenceChunk(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    reference_document = models.ForeignKey(
+        ReferenceDocument,
+        on_delete=models.CASCADE,
+        related_name="chunks",
+    )
+    ordinal = models.IntegerField()
+    chunk_type = models.CharField(max_length=32)
+    title = models.CharField(max_length=255, blank=True, default="")
+    locator = models.JSONField(default=dict)
+    content = models.TextField()
+    content_hash = models.CharField(max_length=64)
+    estimated_tokens = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "documents_reference_chunk"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["reference_document", "ordinal"],
+                name="docs_reference_chunk_unique_ordinal",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["reference_document", "ordinal"], name="docs_rc_doc_ordinal_idx"),
+            models.Index(fields=["content_hash"], name="docs_rc_content_hash_idx"),
+        ]
+
+
+class PlaceholderGenerationAudit(models.Model):
+    class Mode(models.TextChoices):
+        QUICK_FILL = "quick_fill", "Quick Fill"
+        COMPOSE = "compose", "Compose"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    handbook = models.ForeignKey(
+        Handbook,
+        on_delete=models.CASCADE,
+        related_name="generation_audits",
+    )
+    handbook_file = models.ForeignKey(
+        HandbookFile,
+        on_delete=models.CASCADE,
+        related_name="generation_audits",
+    )
+    placeholder = models.ForeignKey(
+        Placeholder,
+        on_delete=models.CASCADE,
+        related_name="generation_audits",
+    )
+    mode = models.CharField(max_length=16, choices=Mode.choices)
+    instruction = models.TextField(blank=True, default="")
+    output_style = models.CharField(max_length=64, blank=True, default="")
+    language = models.CharField(max_length=16, blank=True, default="")
+    model = models.CharField(max_length=128, blank=True, default="")
+    prompt_tokens = models.IntegerField(default=0)
+    completion_tokens = models.IntegerField(default=0)
+    total_tokens = models.IntegerField(default=0)
+    references_used = models.JSONField(default=list)
+    file_context_used = models.JSONField(default=dict)
+    fallback_path = models.CharField(max_length=64, blank=True, default="")
+    trace = models.JSONField(default=dict)
+    success = models.BooleanField(default=False)
+    error_message = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "documents_placeholder_generation_audit"
+        indexes = [
+            models.Index(fields=["handbook", "-created_at"], name="docs_pga_hb_created_idx"),
+            models.Index(fields=["handbook_file", "-created_at"], name="docs_pga_file_created_idx"),
+            models.Index(fields=["placeholder", "-created_at"], name="docs_pga_pl_created_idx"),
+        ]
+
+
+class DocumentTextExtractionCache(models.Model):
+    checksum = models.CharField(max_length=64)
+    file_type = models.CharField(max_length=8, choices=ReferenceDocument.FileType.choices)
+    normalized_data = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "documents_text_extraction_cache"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["checksum", "file_type"],
+                name="docs_text_extract_cache_unique_checksum_type",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["file_type", "-updated_at"], name="docs_tec_type_updated_idx"),
         ]

@@ -17,6 +17,7 @@ urlpatterns = [
     path("handbooks/<str:handbook_id>/upload-zip", views.handbook_upload_zip_view),
     path("handbooks/<str:handbook_id>/tree", views.handbook_tree_view),
     path("handbooks/<str:handbook_id>/completion", views.handbook_completion_view),
+    path("handbooks/<str:handbook_id>/compose-config", views.handbook_compose_config_view),
     path(
         "handbooks/<str:handbook_id>/files/<str:file_id>/placeholders",
         views.handbook_file_placeholders_view,
@@ -28,6 +29,42 @@ urlpatterns = [
     path(
         "handbooks/<str:handbook_id>/placeholders/ai-fill",
         views.handbook_placeholder_ai_fill_view,
+    ),
+    path(
+        "handbooks/<str:handbook_id>/placeholders/compose",
+        views.handbook_placeholder_compose_view,
+    ),
+    path(
+        "handbooks/<str:handbook_id>/reference-files",
+        views.handbook_reference_files_view,
+    ),
+    path(
+        "handbooks/<str:handbook_id>/reference-files/upload",
+        views.handbook_reference_files_view,
+    ),
+    path(
+        "handbooks/<str:handbook_id>/reference-files/<str:ref_id>",
+        views.handbook_reference_file_detail_view,
+    ),
+    path(
+        "handbooks/<str:handbook_id>/reference-files/<str:ref_id>/preview",
+        views.handbook_reference_file_preview_view,
+    ),
+    path(
+        "handbooks/<str:handbook_id>/reference-files/<str:ref_id>/links",
+        views.handbook_reference_file_links_view,
+    ),
+    path(
+        "handbooks/<str:handbook_id>/reference-files/<str:ref_id>/links/<str:link_id>",
+        views.handbook_reference_file_link_detail_view,
+    ),
+    path(
+        "handbooks/<str:handbook_id>/reference-files/<str:ref_id>/reprocess",
+        views.handbook_reference_file_reprocess_view,
+    ),
+    path(
+        "handbooks/<str:handbook_id>/generation-audits/<str:audit_id>",
+        views.handbook_generation_audit_detail_view,
     ),
     path("handbooks/<str:handbook_id>/versions", views.handbook_versions_view),
     path(

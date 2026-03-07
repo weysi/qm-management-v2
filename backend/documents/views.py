@@ -11,14 +11,31 @@ from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .models import Document, DocumentVersion, Handbook, HandbookFile, VersionSnapshot
+from .models import (
+    Document,
+    DocumentVersion,
+    Handbook,
+    HandbookFile,
+    Placeholder,
+    PlaceholderGenerationAudit,
+    ReferenceDocument,
+    VersionSnapshot,
+)
 from .serializers import (
     DocumentSerializer,
     DocumentVersionSerializer,
     HandbookFileSerializer,
     HandbookSerializer,
+    PlaceholderGenerationAuditSerializer,
+    ReferenceDocumentLinkSerializer,
+    ReferenceDocumentSerializer,
     VersionSnapshotSerializer,
     WorkspaceAssetSerializer,
+)
+from .services.compose_service import (
+    ComposeValidationError,
+    compose_placeholder_value,
+    get_compose_config,
 )
 from .services.asset_service import (
     AssetValidationError,
@@ -35,6 +52,7 @@ from .services.handbook_service import (
     HandbookServiceError,
     ai_fill_single_placeholder,
     build_handbook_tree,
+    canonicalize_placeholder_key,
     create_snapshot_from_current_state,
     create_handbook,
     delete_snapshot,
@@ -49,6 +67,16 @@ from .services.handbook_service import (
 )
 from .services.render_service import RenderValidationError, render_document
 from .services.rewrite_service import RewriteValidationError, rewrite_document
+from .services.reference_service import (
+    ReferenceServiceError,
+    create_reference_link,
+    delete_reference_document,
+    delete_reference_link,
+    get_reference_document_preview,
+    list_reference_documents,
+    reprocess_reference_document,
+    upload_reference_document,
+)
 from .services.token_metrics import estimate_token_count_from_bytes, log_token_metrics
 from .services.upload_service import UploadValidationError, upload_document
 from .services.variable_fill_service import VariableFillError, fill_variable_value
@@ -641,6 +669,200 @@ def handbook_placeholder_ai_fill_view(request, handbook_id: str):
         return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     return Response(payload, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+def handbook_compose_config_view(request, handbook_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+    return Response(get_compose_config(), status=status.HTTP_200_OK)
+
+
+@api_view(["GET", "POST"])
+def handbook_reference_files_view(request, handbook_id: str):
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "POST":
+        uploaded = request.FILES.get("file")
+        if uploaded is None:
+            return Response({"error": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            reference_document = upload_reference_document(handbook=handbook, uploaded=uploaded)
+        except ReferenceServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"reference_document": ReferenceDocumentSerializer(reference_document).data},
+            status=status.HTTP_201_CREATED,
+        )
+
+    documents = list_reference_documents(handbook=handbook)
+    return Response(
+        {"reference_documents": ReferenceDocumentSerializer(documents, many=True).data},
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["DELETE"])
+def handbook_reference_file_detail_view(request, handbook_id: str, ref_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+    deleted = delete_reference_document(handbook=handbook, reference_document_id=ref_id)
+    if not deleted:
+        return Response({"error": "Reference document not found"}, status=status.HTTP_404_NOT_FOUND)
+    return Response({"status": "deleted", "reference_document_id": ref_id}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+def handbook_reference_file_preview_view(request, handbook_id: str, ref_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        payload = get_reference_document_preview(handbook=handbook, reference_document_id=ref_id)
+    except ReferenceServiceError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(
+        {
+            "reference_document": ReferenceDocumentSerializer(payload["reference_document"]).data,
+            "summary": payload["summary"],
+            "sections": payload["sections"],
+            "links": payload["links"],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["POST"])
+def handbook_reference_file_links_view(request, handbook_id: str, ref_id: str):
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        link = create_reference_link(
+            handbook=handbook,
+            reference_document_id=ref_id,
+            scope=str(request.data.get("scope", "")).strip(),
+            handbook_file_id=str(request.data.get("handbook_file_id", "")).strip() or None,
+            placeholder_id=str(request.data.get("placeholder_id", "")).strip() or None,
+        )
+    except ReferenceServiceError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response({"link": ReferenceDocumentLinkSerializer(link).data}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["DELETE"])
+def handbook_reference_file_link_detail_view(request, handbook_id: str, ref_id: str, link_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+    deleted = delete_reference_link(handbook=handbook, reference_document_id=ref_id, link_id=link_id)
+    if not deleted:
+        return Response({"error": "Reference link not found"}, status=status.HTTP_404_NOT_FOUND)
+    return Response({"status": "deleted", "link_id": link_id}, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+def handbook_reference_file_reprocess_view(request, handbook_id: str, ref_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+    try:
+        reference_document = reprocess_reference_document(handbook=handbook, reference_document_id=ref_id)
+    except ReferenceServiceError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    return Response(
+        {"reference_document": ReferenceDocumentSerializer(reference_document).data},
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["POST"])
+def handbook_placeholder_compose_view(request, handbook_id: str):
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    file_id = str(request.data.get("file_id", "")).strip()
+    placeholder_key = str(request.data.get("placeholder_key", "")).strip()
+    if not file_id or not placeholder_key:
+        return Response(
+            {"error": "file_id and placeholder_key are required"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    handbook_file = HandbookFile.objects.filter(id=file_id, handbook=handbook).first()
+    if handbook_file is None:
+        return Response({"error": "Handbook file not found"}, status=status.HTTP_404_NOT_FOUND)
+    placeholder = Placeholder.objects.filter(
+        handbook_file=handbook_file,
+        key=canonicalize_placeholder_key(placeholder_key),
+    ).first()
+    if placeholder is None:
+        return Response({"error": "Placeholder not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    current_value_raw = request.data.get("current_value")
+    current_value = None if current_value_raw is None else str(current_value_raw)
+    instruction = str(request.data.get("instruction", "")).strip()
+    language = str(request.data.get("language", "de-DE")).strip()
+    output_style = str(request.data.get("output_style", "formal")).strip()
+    reference_scope = str(request.data.get("reference_scope", "handbook")).strip()
+    reference_document_ids = request.data.get("reference_document_ids", [])
+    if not isinstance(reference_document_ids, list):
+        return Response({"error": "reference_document_ids must be an array"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        result = compose_placeholder_value(
+            handbook=handbook,
+            handbook_file=handbook_file,
+            placeholder=placeholder,
+            current_value=current_value,
+            instruction=instruction,
+            language=language,
+            output_style=output_style,
+            reference_scope=reference_scope,
+            reference_document_ids=[str(item).strip() for item in reference_document_ids if str(item).strip()],
+            use_file_context=bool(request.data.get("use_file_context", True)),
+            constraints=request.data.get("constraints", {}) if isinstance(request.data.get("constraints"), dict) else {},
+            mode_hint=(str(request.data.get("mode_hint", "")).strip() or None),
+        )
+    except ComposeValidationError as exc:
+        return Response({"error": exc.message, "error_code": exc.error_code}, status=exc.status_code)
+
+    return Response(
+        {
+            "value": result.value,
+            "mode": result.mode,
+            "output_class": result.output_class,
+            "model": result.model,
+            "usage": result.usage,
+            "audit": PlaceholderGenerationAuditSerializer(result.audit).data,
+            "trace": result.trace,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["GET"])
+def handbook_generation_audit_detail_view(request, handbook_id: str, audit_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+    audit = PlaceholderGenerationAudit.objects.filter(id=audit_id, handbook=handbook).first()
+    if audit is None:
+        return Response({"error": "Generation audit not found"}, status=status.HTTP_404_NOT_FOUND)
+    return Response({"audit": PlaceholderGenerationAuditSerializer(audit).data}, status=status.HTTP_200_OK)
 
 
 @api_view(["GET", "POST"])
