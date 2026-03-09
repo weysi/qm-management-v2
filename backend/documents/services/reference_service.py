@@ -190,7 +190,7 @@ def get_reference_document_preview(*, handbook: Handbook, reference_document_id:
     if reference_document is None:
         raise ReferenceServiceError("Reference document not found")
 
-    normalized = _load_normalized_document(reference_document)
+    normalized = load_normalized_reference_document(reference_document)
     preview_sections = [
         {
             "id": section.id,
@@ -199,18 +199,30 @@ def get_reference_document_preview(*, handbook: Handbook, reference_document_id:
             "locator": section.locator,
             "content": section.content,
             "estimated_tokens": section.estimated_tokens,
+            "section_kind": section.section_kind,
+            "keywords": section.keywords,
+            "themes": section.themes,
+            "signals": section.signals,
         }
         for section in normalized.sections[: max(1, limit)]
     ]
     return {
         "reference_document": reference_document,
         "summary": normalized.document_summary,
+        "analysis": {
+            "summary": normalized.analysis.summary,
+            "dominant_themes": normalized.analysis.dominant_themes,
+            "domain_terms": normalized.analysis.domain_terms,
+            "document_patterns": normalized.analysis.document_patterns,
+            "signal_scores": normalized.analysis.signal_scores,
+            "low_signal": normalized.analysis.low_signal,
+        },
         "sections": preview_sections,
         "links": [_serialize_reference_link(link) for link in reference_document.links.all().order_by("created_at")],
     }
 
 
-def _load_normalized_document(reference_document: ReferenceDocument):
+def load_normalized_reference_document(reference_document: ReferenceDocument):
     normalized_path = Path(reference_document.normalized_storage_path)
     if not normalized_path.exists():
         raise ReferenceServiceError("Normalized reference content not found")
@@ -291,7 +303,7 @@ def _populate_reference_document(*, reference_document: ReferenceDocument) -> No
 
     reference_document.parse_status = ReferenceDocument.ParseStatus.PARSED
     reference_document.parse_error = ""
-    reference_document.summary = normalized.document_summary
+    reference_document.summary = normalized.analysis.summary or normalized.document_summary
     reference_document.section_count = len(normalized.sections)
     reference_document.normalized_storage_path = str(normalized_path)
     reference_document.save(

@@ -8,3 +8,5 @@ export * from './useDocumentRewrite';
 export * from './useWorkspaceAssets';
 export * from './useAiFillVariable';
 export * from './useHandbookWorkspace';
+export * from './useHandbookWorkflowController';
+export * from './useClientHandbookFiles';

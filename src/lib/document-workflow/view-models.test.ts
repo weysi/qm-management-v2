@@ -129,7 +129,7 @@ describe('document workflow view-models', () => {
 			expect.objectContaining({
 				label: 'Signature',
 				type: 'signature',
-				preview: 'No signature yet',
+				preview: 'Signature missing',
 			}),
 		);
 	});

@@ -67,6 +67,12 @@ export type {
 } from "@/lib/schemas/handbook.schema";
 
 export type {
+  ClientHandbookFile,
+  ClientHandbookFileGroup,
+  ClientHandbookFileGroupsResponse,
+} from "@/lib/schemas/client-handbook-file.schema";
+
+export type {
   CompanyFunctionType,
   CompanyHeadcountRange,
   CompanyProfile,

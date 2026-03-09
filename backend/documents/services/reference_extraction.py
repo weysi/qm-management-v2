@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass
 from io import BytesIO
+import math
 import re
 from typing import Protocol
 
@@ -21,12 +23,27 @@ class NormalizedSection:
     locator: dict[str, object]
     content: str
     estimated_tokens: int
+    section_kind: str
+    keywords: list[str]
+    themes: list[str]
+    signals: dict[str, float]
+
+
+@dataclass(frozen=True)
+class ReferenceUnderstandingResult:
+    summary: str
+    dominant_themes: list[str]
+    domain_terms: list[str]
+    document_patterns: list[str]
+    signal_scores: dict[str, float]
+    low_signal: bool
 
 
 @dataclass(frozen=True)
 class NormalizedDocument:
     document_summary: str
     sections: list[NormalizedSection]
+    analysis: ReferenceUnderstandingResult
 
 
 class ReferenceExtractionError(ValueError):
@@ -48,6 +65,54 @@ SUPPORTED_REFERENCE_EXTENSIONS = {
 
 MAX_SECTION_CHARS = 1800
 SUMMARY_MAX_CHARS = 600
+STOPWORDS = {
+    "und",
+    "oder",
+    "der",
+    "die",
+    "das",
+    "den",
+    "dem",
+    "des",
+    "ein",
+    "eine",
+    "einer",
+    "einem",
+    "für",
+    "mit",
+    "auf",
+    "von",
+    "ist",
+    "im",
+    "in",
+    "zu",
+    "am",
+    "an",
+    "bei",
+    "nach",
+    "als",
+    "werden",
+    "wird",
+    "durch",
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "this",
+    "that",
+    "into",
+    "eine",
+}
+THEME_PATTERNS: dict[str, tuple[str, ...]] = {
+    "risk_opportunity": ("risiko", "risiken", "chance", "chancen", "bewertung", "auswirkung", "prävent"),
+    "instruction": ("anweisung", "instruction", "durchführung", "arbeitsablauf", "umsetzung", "durchzuführ"),
+    "workflow": ("prozess", "ablauf", "workflow", "prozessablauf", "schnittstelle", "schritt"),
+    "responsibility": ("verantwort", "zuständig", "rolle", "aufgabe", "befugnis", "owner"),
+    "record_control": ("aufzeichnung", "dokument", "lenkung", "nachweis", "ablage", "aufbewahrung", "revision"),
+    "policy": ("politik", "policy", "grundsatz", "zielsetzung", "leitlinie"),
+    "compliance": ("compliance", "audit", "norm", "iso", "scc", "gesetz", "anforderung"),
+}
 
 
 def infer_reference_file_type(filename: str) -> str:
@@ -60,6 +125,7 @@ def serialize_normalized_document(document: NormalizedDocument) -> dict[str, obj
     return {
         "document_summary": document.document_summary,
         "sections": [asdict(item) for item in document.sections],
+        "analysis": asdict(document.analysis),
     }
 
 
@@ -78,11 +144,67 @@ def deserialize_normalized_document(payload: dict[str, object]) -> NormalizedDoc
                     locator=item.get("locator") if isinstance(item.get("locator"), dict) else {},
                     content=str(item.get("content", "")),
                     estimated_tokens=int(item.get("estimated_tokens", 0) or 0),
+                    section_kind=str(item.get("section_kind", "section")),
+                    keywords=[
+                        str(keyword).strip()
+                        for keyword in item.get("keywords", [])
+                        if str(keyword).strip()
+                    ]
+                    if isinstance(item.get("keywords"), list)
+                    else [],
+                    themes=[
+                        str(theme).strip()
+                        for theme in item.get("themes", [])
+                        if str(theme).strip()
+                    ]
+                    if isinstance(item.get("themes"), list)
+                    else [],
+                    signals={
+                        str(key): float(value)
+                        for key, value in item.get("signals", {}).items()
+                    }
+                    if isinstance(item.get("signals"), dict)
+                    else {},
                 )
             )
+    analysis_raw = payload.get("analysis") if isinstance(payload, dict) else {}
+    analysis = ReferenceUnderstandingResult(
+        summary=str(analysis_raw.get("summary", "") if isinstance(analysis_raw, dict) else ""),
+        dominant_themes=[
+            str(item).strip()
+            for item in analysis_raw.get("dominant_themes", [])
+            if str(item).strip()
+        ]
+        if isinstance(analysis_raw, dict) and isinstance(analysis_raw.get("dominant_themes"), list)
+        else [],
+        domain_terms=[
+            str(item).strip()
+            for item in analysis_raw.get("domain_terms", [])
+            if str(item).strip()
+        ]
+        if isinstance(analysis_raw, dict) and isinstance(analysis_raw.get("domain_terms"), list)
+        else [],
+        document_patterns=[
+            str(item).strip()
+            for item in analysis_raw.get("document_patterns", [])
+            if str(item).strip()
+        ]
+        if isinstance(analysis_raw, dict) and isinstance(analysis_raw.get("document_patterns"), list)
+        else [],
+        signal_scores={
+            str(key): float(value)
+            for key, value in analysis_raw.get("signal_scores", {}).items()
+        }
+        if isinstance(analysis_raw, dict) and isinstance(analysis_raw.get("signal_scores"), dict)
+        else {},
+        low_signal=bool(analysis_raw.get("low_signal", False))
+        if isinstance(analysis_raw, dict)
+        else False,
+    )
     return NormalizedDocument(
         document_summary=str(payload.get("document_summary", "") if isinstance(payload, dict) else ""),
         sections=sections,
+        analysis=analysis,
     )
 
 
@@ -311,6 +433,11 @@ def _build_document_from_groups(
                 content = "\n".join(buffer).strip()
                 if content:
                     title = group_title if part == 1 else f"{group_title} ({part})"
+                    section_kind, keywords, themes, signals = _analyze_section(
+                        title=title,
+                        content=content,
+                        locator={**locator, "part": part},
+                    )
                     sections.append(
                         NormalizedSection(
                             id=f"section-{ordinal}",
@@ -319,6 +446,10 @@ def _build_document_from_groups(
                             locator={**locator, "part": part},
                             content=content,
                             estimated_tokens=estimate_token_count(content),
+                            section_kind=section_kind,
+                            keywords=keywords,
+                            themes=themes,
+                            signals=signals,
                         )
                     )
                     ordinal += 1
@@ -332,6 +463,11 @@ def _build_document_from_groups(
             title = group_title or default_title
             if part > 1:
                 title = f"{title} ({part})"
+            section_kind, keywords, themes, signals = _analyze_section(
+                title=title,
+                content=content,
+                locator={**locator, "part": part},
+            )
             sections.append(
                 NormalizedSection(
                     id=f"section-{ordinal}",
@@ -340,6 +476,10 @@ def _build_document_from_groups(
                     locator={**locator, "part": part},
                     content=content,
                     estimated_tokens=estimate_token_count(content),
+                    section_kind=section_kind,
+                    keywords=keywords,
+                    themes=themes,
+                    signals=signals,
                 )
             )
             ordinal += 1
@@ -347,11 +487,110 @@ def _build_document_from_groups(
     if not sections:
         raise ReferenceExtractionError("No extractable sections found")
 
+    analysis = _analyze_document(sections=sections, default_title=default_title)
     summary_parts: list[str] = []
-    for section in sections[:4]:
+    if analysis.dominant_themes:
+        summary_parts.append(
+            f"Themen: {', '.join(analysis.dominant_themes[:4])}"
+        )
+    if analysis.domain_terms:
+        summary_parts.append(
+            f"Begriffe: {', '.join(analysis.domain_terms[:6])}"
+        )
+    for section in sections[:2]:
         header = section.title or default_title
-        excerpt = section.content[:160].strip()
+        excerpt = section.content[:140].strip()
         if excerpt:
             summary_parts.append(f"{header}: {excerpt}")
-    summary = "\n".join(summary_parts)[:SUMMARY_MAX_CHARS].strip()
-    return NormalizedDocument(document_summary=summary, sections=sections)
+    summary = "\n".join(summary_parts)[:SUMMARY_MAX_CHARS].strip() or analysis.summary
+    return NormalizedDocument(document_summary=summary, sections=sections, analysis=analysis)
+
+
+def _tokenize_terms(text: str) -> list[str]:
+    return [
+        term
+        for term in re.findall(r"[A-Za-zÄÖÜäöüß][A-Za-zÄÖÜäöüß0-9_-]{2,}", text.lower())
+        if term not in STOPWORDS
+    ]
+
+
+def _extract_keywords(text: str, *, limit: int = 10) -> list[str]:
+    counter = Counter(_tokenize_terms(text))
+    return [term for term, _count in counter.most_common(limit)]
+
+
+def _score_theme_matches(text: str) -> dict[str, float]:
+    haystack = text.lower()
+    scores: dict[str, float] = {}
+    for theme, patterns in THEME_PATTERNS.items():
+        score = 0.0
+        for pattern in patterns:
+            occurrences = haystack.count(pattern)
+            if occurrences:
+                score += 1.0 + math.log1p(occurrences)
+        if score > 0:
+            scores[theme] = round(score, 3)
+    return scores
+
+
+def _analyze_section(
+    *,
+    title: str,
+    content: str,
+    locator: dict[str, object],
+) -> tuple[str, list[str], list[str], dict[str, float]]:
+    text = f"{title}\n{content}".strip()
+    keywords = _extract_keywords(text)
+    signals = _score_theme_matches(text)
+    themes = [
+        theme
+        for theme, score in sorted(signals.items(), key=lambda item: item[1], reverse=True)
+        if score > 0
+    ]
+
+    if "table" in locator:
+        section_kind = "table"
+    elif "sheet" in locator:
+        section_kind = "table"
+    elif re.search(r"(^|\n)\s*(?:[-*•]|\d+[.)])\s+", content):
+        section_kind = "bullet_list"
+    elif themes and themes[0] in {"workflow", "instruction"}:
+        section_kind = "procedure"
+    elif title and len(title.split()) <= 12:
+        section_kind = "heading_block"
+    else:
+        section_kind = "section"
+
+    return section_kind, keywords[:8], themes[:4], signals
+
+
+def _analyze_document(
+    *,
+    sections: list[NormalizedSection],
+    default_title: str,
+) -> ReferenceUnderstandingResult:
+    aggregate_scores: Counter[str] = Counter()
+    keyword_counter: Counter[str] = Counter()
+    for section in sections:
+        aggregate_scores.update(section.signals)
+        keyword_counter.update(section.keywords)
+
+    dominant_themes = [
+        theme
+        for theme, score in aggregate_scores.most_common()
+        if float(score) > 0
+    ][:4]
+    domain_terms = [term for term, _count in keyword_counter.most_common(12)]
+    summary = (
+        f"{default_title}: "
+        f"{', '.join(dominant_themes[:3]) or 'allgemeine Referenz'}"
+    )
+    low_signal = sum(section.estimated_tokens for section in sections) < 80 or not dominant_themes
+    return ReferenceUnderstandingResult(
+        summary=summary[:SUMMARY_MAX_CHARS],
+        dominant_themes=dominant_themes,
+        domain_terms=domain_terms[:10],
+        document_patterns=dominant_themes[:4],
+        signal_scores={theme: round(float(score), 3) for theme, score in aggregate_scores.items()},
+        low_signal=low_signal,
+    )

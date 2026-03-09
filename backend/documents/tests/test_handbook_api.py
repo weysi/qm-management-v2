@@ -8,11 +8,19 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 from docx import Document as WordDocument
 
 from clients.models import Client
-from documents.models import Handbook, PlaceholderParseCache, PlaceholderValue, WorkspaceAsset
+from documents.models import (
+    Handbook,
+    HandbookFile,
+    Placeholder,
+    PlaceholderParseCache,
+    PlaceholderValue,
+    WorkspaceAsset,
+)
 from documents.services.handbook_service import autofill_placeholders_from_client
 
 
@@ -75,6 +83,18 @@ class HandbookApiTests(TestCase):
             f"/api/v1/handbooks/{handbook_id}/assets/signature",
             {"data_url": data_url, "filename": "signature.png"},
             format="json",
+        )
+
+    def _upload_workspace_asset(self, handbook_id: str, *, asset_type: str, filename: str = "asset.png"):
+        upload = SimpleUploadedFile(
+            filename,
+            self._transparent_png_bytes(),
+            content_type="image/png",
+        )
+        return self.client.post(
+            f"/api/v1/handbooks/{handbook_id}/assets",
+            {"file": upload, "asset_type": asset_type},
+            format="multipart",
         )
 
     @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
@@ -140,6 +160,33 @@ class HandbookApiTests(TestCase):
         keys = [item["key"] for item in placeholders_res.json()["placeholders"]]
         self.assertIn("validity_date", keys)
         self.assertIn("company_name", keys)
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_upload_zip_autofills_current_date_placeholders(self):
+        handbook_id = self._create_handbook()
+
+        doc = WordDocument()
+        doc.add_paragraph("Gueltig bis {{VALIDITY_DATE,DATE}}")
+        doc.add_paragraph("Heute {{DATE}}")
+        upload_res = self._upload_zip_bytes(
+            handbook_id,
+            self._create_zip_with_docx("docs/template.docx", doc),
+        )
+        self.assertEqual(upload_res.status_code, 201)
+        file_id = upload_res.json()["files"][0]["id"]
+
+        placeholders_res = self.client.get(
+            f"/api/v1/handbooks/{handbook_id}/files/{file_id}/placeholders"
+        )
+        self.assertEqual(placeholders_res.status_code, 200)
+        payload = placeholders_res.json()
+        placeholders_by_key = {item["key"]: item for item in payload["placeholders"]}
+
+        expected_date = timezone.localdate().strftime("%d.%m.%Y")
+        self.assertEqual(placeholders_by_key["validity_date"]["value_text"], expected_date)
+        self.assertTrue(placeholders_by_key["validity_date"]["resolved"])
+        self.assertEqual(placeholders_by_key["date"]["value_text"], expected_date)
+        self.assertTrue(placeholders_by_key["date"]["resolved"])
 
     @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
     def test_upload_zip_reuses_placeholder_parse_cache_by_checksum(self):
@@ -220,6 +267,51 @@ class HandbookApiTests(TestCase):
             ).count(),
             1,
         )
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_workspace_asset_upload_and_delete_sync_client_profile(self):
+        handbook_id = self._create_handbook()
+        doc = WordDocument()
+        doc.add_paragraph("{{assets.logo}}")
+        upload_res = self._upload_zip_bytes(
+            handbook_id,
+            self._create_zip_with_docx("docs/template.docx", doc),
+        )
+        self.assertEqual(upload_res.status_code, 201)
+        file_id = upload_res.json()["files"][0]["id"]
+
+        upload_asset_res = self._upload_workspace_asset(
+            handbook_id,
+            asset_type="logo",
+            filename="logo.png",
+        )
+        self.assertEqual(upload_asset_res.status_code, 201)
+
+        self.customer.refresh_from_db()
+        self.assertIsNotNone(self.customer.logo_url)
+        self.assertTrue(str(self.customer.logo_url).startswith("data:image/png;base64,"))
+
+        placeholders_res = self.client.get(
+            f"/api/v1/handbooks/{handbook_id}/files/{file_id}/placeholders"
+        )
+        self.assertEqual(placeholders_res.status_code, 200)
+        logo_placeholder = placeholders_res.json()["placeholders"][0]
+        self.assertTrue(logo_placeholder["resolved"])
+        self.assertIsNotNone(logo_placeholder["asset_id"])
+
+        delete_res = self.client.delete(f"/api/v1/handbooks/{handbook_id}/assets/logo")
+        self.assertEqual(delete_res.status_code, 200)
+
+        self.customer.refresh_from_db()
+        self.assertIsNone(self.customer.logo_url)
+
+        placeholders_after_delete = self.client.get(
+            f"/api/v1/handbooks/{handbook_id}/files/{file_id}/placeholders"
+        )
+        self.assertEqual(placeholders_after_delete.status_code, 200)
+        logo_placeholder_after_delete = placeholders_after_delete.json()["placeholders"][0]
+        self.assertFalse(logo_placeholder_after_delete["resolved"])
+        self.assertIsNone(logo_placeholder_after_delete["asset_id"])
 
     @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
     def test_autofill_does_not_override_existing_manual_placeholder_values(self):
@@ -436,3 +528,165 @@ class HandbookApiTests(TestCase):
             self.assertTrue(media_entries)
             media_payloads = [doc_archive.read(name) for name in media_entries]
             self.assertIn(signature_bytes, media_payloads)
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_client_handbook_files_endpoint_groups_uploaded_files(self):
+        handbook_id = self._create_handbook()
+
+        doc_a = WordDocument()
+        doc_a.add_paragraph("{{custom.one}}")
+        doc_b = WordDocument()
+        doc_b.add_paragraph("{{custom.two}}")
+
+        archive = BytesIO()
+        doc_a_stream = BytesIO()
+        doc_a.save(doc_a_stream)
+        doc_b_stream = BytesIO()
+        doc_b.save(doc_b_stream)
+        with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
+            bundle.writestr("docs/a.docx", doc_a_stream.getvalue())
+            bundle.writestr("docs/b.docx", doc_b_stream.getvalue())
+
+        upload_res = self._upload_zip_bytes(handbook_id, archive.getvalue())
+        self.assertEqual(upload_res.status_code, 201)
+
+        grouped_res = self.client.get(f"/api/v1/clients/{self.customer.id}/handbook-files/")
+        self.assertEqual(grouped_res.status_code, 200)
+        payload = grouped_res.json()
+
+        self.assertEqual(payload["client_id"], str(self.customer.id))
+        self.assertEqual(len(payload["groups"]), 1)
+        group = payload["groups"][0]
+        self.assertEqual(group["handbook_id"], handbook_id)
+        self.assertEqual(group["file_count"], 2)
+        self.assertEqual(
+            [item["path_in_handbook"] for item in group["files"]],
+            ["docs/a.docx", "docs/b.docx"],
+        )
+        self.assertTrue(all(item["deletable"] for item in group["files"]))
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_delete_handbook_removes_workspace_and_grouped_files(self):
+        handbook_id = self._create_handbook()
+
+        doc = WordDocument()
+        doc.add_paragraph("{{custom.one}}")
+        upload_res = self._upload_zip_bytes(
+            handbook_id,
+            self._create_zip_with_docx("docs/aenderung.docx", doc),
+        )
+        self.assertEqual(upload_res.status_code, 201)
+
+        grouped_before = self.client.get(
+            f"/api/v1/clients/{self.customer.id}/handbook-files/"
+        )
+        self.assertEqual(grouped_before.status_code, 200)
+        self.assertEqual(len(grouped_before.json()["groups"]), 1)
+
+        delete_res = self.client.delete(f"/api/v1/handbooks/{handbook_id}")
+        self.assertEqual(delete_res.status_code, 200)
+        self.assertEqual(delete_res.json()["status"], "deleted")
+        self.assertFalse(Handbook.objects.filter(id=handbook_id).exists())
+        self.assertEqual(
+            HandbookFile.objects.filter(handbook_id=handbook_id).count(),
+            0,
+        )
+
+        grouped_after = self.client.get(
+            f"/api/v1/clients/{self.customer.id}/handbook-files/"
+        )
+        self.assertEqual(grouped_after.status_code, 200)
+        self.assertEqual(grouped_after.json()["groups"], [])
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_delete_handbook_file_cleans_orphan_values_and_updates_completion(self):
+        handbook_id = self._create_handbook()
+
+        doc_a = WordDocument()
+        doc_a.add_paragraph("{{custom.one}}")
+        doc_b = WordDocument()
+        doc_b.add_paragraph("{{custom.two}}")
+
+        archive = BytesIO()
+        doc_a_stream = BytesIO()
+        doc_a.save(doc_a_stream)
+        doc_b_stream = BytesIO()
+        doc_b.save(doc_b_stream)
+        with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
+            bundle.writestr("docs/a.docx", doc_a_stream.getvalue())
+            bundle.writestr("docs/b.docx", doc_b_stream.getvalue())
+
+        upload_res = self._upload_zip_bytes(handbook_id, archive.getvalue())
+        self.assertEqual(upload_res.status_code, 201)
+        files = upload_res.json()["files"]
+        file_a = next(item for item in files if item["path_in_handbook"] == "docs/a.docx")
+        file_b = next(item for item in files if item["path_in_handbook"] == "docs/b.docx")
+
+        save_res = self.client.post(
+            f"/api/v1/handbooks/{handbook_id}/placeholders/save",
+            {
+                "file_id": file_a["id"],
+                "values": [{"key": "custom.one", "value_text": "Alpha"}],
+                "source": "MANUAL",
+            },
+            format="json",
+        )
+        self.assertEqual(save_res.status_code, 200)
+        save_res = self.client.post(
+            f"/api/v1/handbooks/{handbook_id}/placeholders/save",
+            {
+                "file_id": file_b["id"],
+                "values": [{"key": "custom.two", "value_text": "Beta"}],
+                "source": "MANUAL",
+            },
+            format="json",
+        )
+        self.assertEqual(save_res.status_code, 200)
+
+        handbook_file = HandbookFile.objects.get(id=file_a["id"])
+        original_path = Path(handbook_file.original_blob_ref)
+        working_path = Path(handbook_file.working_blob_ref)
+        self.assertTrue(original_path.exists())
+
+        delete_res = self.client.delete(
+            f"/api/v1/handbooks/{handbook_id}/files/{file_a['id']}"
+        )
+        self.assertEqual(delete_res.status_code, 200)
+        completion = delete_res.json()["completion"]
+
+        self.assertFalse(HandbookFile.objects.filter(id=file_a["id"]).exists())
+        self.assertFalse(Placeholder.objects.filter(handbook_file_id=file_a["id"]).exists())
+        self.assertFalse(
+            PlaceholderValue.objects.filter(handbook_id=handbook_id, key="custom.one").exists()
+        )
+        self.assertTrue(
+            PlaceholderValue.objects.filter(handbook_id=handbook_id, key="custom.two").exists()
+        )
+        self.assertEqual([item["file_id"] for item in completion["files"]], [file_b["id"]])
+        self.assertFalse(original_path.exists())
+        if working_path != original_path:
+            self.assertFalse(working_path.exists())
+
+    @override_settings(DOCUMENTS_DATA_ROOT=Path("/tmp"))
+    def test_delete_last_handbook_file_returns_handbook_to_draft(self):
+        handbook_id = self._create_handbook()
+        doc = WordDocument()
+        doc.add_paragraph("{{custom.one}}")
+
+        upload_res = self._upload_zip_bytes(
+            handbook_id,
+            self._create_zip_with_docx("docs/template.docx", doc),
+        )
+        self.assertEqual(upload_res.status_code, 201)
+        file_id = upload_res.json()["files"][0]["id"]
+
+        delete_res = self.client.delete(f"/api/v1/handbooks/{handbook_id}/files/{file_id}")
+        self.assertEqual(delete_res.status_code, 200)
+        completion = delete_res.json()["completion"]
+
+        handbook = Handbook.objects.get(id=handbook_id)
+        self.assertEqual(handbook.status, Handbook.Status.DRAFT)
+        self.assertEqual(HandbookFile.objects.filter(handbook_id=handbook_id).count(), 0)
+        self.assertEqual(completion["required_total"], 0)
+        self.assertEqual(completion["required_resolved"], 0)
+        self.assertEqual(completion["files"], [])

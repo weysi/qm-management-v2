@@ -1,6 +1,7 @@
 "use client";
 
 
+import { useRef } from 'react';
 import { useRouter } from "next/navigation";
 import { useForm } from 'react-hook-form';
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -13,22 +14,77 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { toast } from 'sonner';
+import { ImagePlus, RefreshCcw, Trash2 } from 'lucide-react';
 import type { CreateClientInput } from '@/lib/schemas';
+
+async function fileToDataUrl(file: File): Promise<string> {
+	return await new Promise((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => {
+			if (typeof reader.result !== 'string') {
+				reject(new Error('Datei konnte nicht gelesen werden.'));
+				return;
+			}
+			resolve(reader.result);
+		};
+		reader.onerror = () =>
+			reject(new Error('Datei konnte nicht gelesen werden.'));
+		reader.readAsDataURL(file);
+	});
+}
 
 export default function NewClientPage() {
   const router = useRouter();
   const { mutate: createClient, isPending } = useCreateClient();
+	const logoInputRef = useRef<HTMLInputElement | null>(null);
+	const signatureInputRef = useRef<HTMLInputElement | null>(null);
 
   const {
 		register,
 		handleSubmit,
+		setValue,
+		watch,
 
 		formState: { errors },
 	} = useForm<CreateClientInput>({
 		resolver: zodResolver(CreateClientSchema),
 		mode: 'onTouched',
-		defaultValues: { employeeCount: undefined },
+		defaultValues: {
+			employeeCount: undefined,
+			logoUrl: undefined,
+			signatureUrl: undefined,
+		},
 	});
+
+	const logoUrl = watch('logoUrl');
+	const signatureUrl = watch('signatureUrl');
+
+	async function handleAssetSelect(
+		field: 'logoUrl' | 'signatureUrl',
+		file: File | null,
+	) {
+		if (!file) return;
+		if (!file.type.startsWith('image/')) {
+			toast.error('Bitte eine Bilddatei auswählen.');
+			return;
+		}
+
+		try {
+			const dataUrl = await fileToDataUrl(file);
+			setValue(field, dataUrl, {
+				shouldDirty: true,
+				shouldTouch: true,
+				shouldValidate: true,
+			});
+		} catch (error) {
+			toast.error(
+				error instanceof Error
+					? error.message
+					: 'Datei konnte nicht geladen werden.',
+			);
+		}
+	}
 
 	// ── Submit ─────────────────────────────────────────────────────────────
 	function onSubmit(data: CreateClientInput) {
@@ -208,6 +264,76 @@ export default function NewClientPage() {
 							</CardContent>
 						</Card>
 					</div>
+
+					<div className="space-y-6">
+						<Card>
+							<CardHeader>
+								<CardTitle className="text-base">
+									Logo &amp; Unterschrift
+								</CardTitle>
+							</CardHeader>
+							<CardContent className="space-y-5">
+								<p className="text-sm text-slate-600">
+									Diese Assets werden beim Erstellen neuer Workspaces als
+									Standardwerte übernommen.
+								</p>
+
+								<AssetField
+									title="Firmenlogo"
+									description="Wird für passende Logo-Platzhalter im Handbook verwendet."
+									value={logoUrl}
+									inputRef={logoInputRef}
+									error={errors.logoUrl?.message}
+									onPick={() => logoInputRef.current?.click()}
+									onClear={() =>
+										setValue('logoUrl', undefined, {
+											shouldDirty: true,
+											shouldTouch: true,
+											shouldValidate: true,
+										})
+									}
+								/>
+								<input
+									ref={logoInputRef}
+									type="file"
+									accept="image/png,image/jpeg,image/jpg,image/gif,image/bmp,image/webp"
+									className="hidden"
+									onChange={event => {
+										const file = event.target.files?.[0] ?? null;
+										event.currentTarget.value = '';
+										void handleAssetSelect('logoUrl', file);
+									}}
+								/>
+
+								<AssetField
+									title="Unterschrift"
+									description="Wird für passende Signatur-Platzhalter im Handbook verwendet."
+									value={signatureUrl}
+									inputRef={signatureInputRef}
+									error={errors.signatureUrl?.message}
+									onPick={() => signatureInputRef.current?.click()}
+									onClear={() =>
+										setValue('signatureUrl', undefined, {
+											shouldDirty: true,
+											shouldTouch: true,
+											shouldValidate: true,
+										})
+									}
+								/>
+								<input
+									ref={signatureInputRef}
+									type="file"
+									accept="image/png,image/jpeg,image/jpg,image/gif,image/bmp,image/webp"
+									className="hidden"
+									onChange={event => {
+										const file = event.target.files?.[0] ?? null;
+										event.currentTarget.value = '';
+										void handleAssetSelect('signatureUrl', file);
+									}}
+								/>
+							</CardContent>
+						</Card>
+					</div>
 				</div>
 
 				<Separator />
@@ -229,6 +355,77 @@ export default function NewClientPage() {
 					</Button>
 				</div>
 			</form>
+		</div>
+	);
+}
+
+interface AssetFieldProps {
+	title: string;
+	description: string;
+	value: string | undefined;
+	inputRef: React.RefObject<HTMLInputElement | null>;
+	error?: string;
+	onPick: () => void;
+	onClear: () => void;
+}
+
+function AssetField({
+	title,
+	description,
+	value,
+	error,
+	onPick,
+	onClear,
+}: AssetFieldProps) {
+	const hasAsset = Boolean(value);
+
+	return (
+		<div className="space-y-3 rounded-2xl border border-slate-200 p-4">
+			<div>
+				<p className="text-sm font-semibold text-slate-900">{title}</p>
+				<p className="mt-1 text-sm text-slate-500">{description}</p>
+			</div>
+
+			<div className="flex min-h-[180px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
+				{value ? (
+					<img
+						src={value}
+						alt={title}
+						className="max-h-36 rounded-xl object-contain"
+					/>
+				) : (
+					<p className="text-center text-sm text-slate-500">
+						Noch kein Asset hochgeladen.
+					</p>
+				)}
+			</div>
+
+			<div className="flex flex-col gap-2">
+				<Button
+					type="button"
+					variant="outline"
+					onClick={onPick}
+				>
+					{hasAsset ? (
+						<RefreshCcw className="h-4 w-4" />
+					) : (
+						<ImagePlus className="h-4 w-4" />
+					)}
+					{hasAsset ? 'Ersetzen' : 'Bild hochladen'}
+				</Button>
+				<Button
+					type="button"
+					variant="ghost"
+					className="text-slate-600"
+					disabled={!hasAsset}
+					onClick={onClear}
+				>
+					<Trash2 className="h-4 w-4" />
+					Entfernen
+				</Button>
+			</div>
+
+			{error ? <p className="text-xs text-red-500">{error}</p> : null}
 		</div>
 	);
 }

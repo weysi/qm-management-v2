@@ -106,6 +106,19 @@ def asset_download_url(handbook_id: str, asset_type: str) -> str:
     return f"/api/v1/handbooks/{handbook_id}/assets/{asset_type}/download"
 
 
+def asset_to_data_url(asset: WorkspaceAsset) -> str | None:
+    path = Path(asset.file_path)
+    if not path.exists():
+        return None
+
+    payload = path.read_bytes()
+    if not payload:
+        return None
+
+    encoded = base64.b64encode(payload).decode("ascii")
+    return f"data:{asset.mime_type};base64,{encoded}"
+
+
 def asset_filename(asset: WorkspaceAsset) -> str:
     return Path(asset.file_path).name
 

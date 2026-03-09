@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { FolderSearch } from 'lucide-react';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { UiContainer, UiScrollableArea } from '@/components/ui-layout';
 import { FileTreeToolbar } from './FileTreeToolbar';
 import { FileTreeNode } from './FileTreeNode';
 import type { FileTreeItem } from '@/lib/document-workflow/view-models';
@@ -10,8 +10,10 @@ import type { FileTreeItem } from '@/lib/document-workflow/view-models';
 interface FileTreePanelProps {
 	items: FileTreeItem[];
 	showAllFiles: boolean;
+	search: string;
 	totalFileCount: number;
 	selectedFileId: string | null;
+	onSearchChange: (value: string) => void;
 	onToggleShowAllFiles: () => void;
 	onSelectFile: (fileId: string) => void;
 }
@@ -19,8 +21,10 @@ interface FileTreePanelProps {
 export function FileTreePanel({
 	items,
 	showAllFiles,
+	search,
 	totalFileCount,
 	selectedFileId,
+	onSearchChange,
 	onToggleShowAllFiles,
 	onSelectFile,
 }: FileTreePanelProps) {
@@ -33,9 +37,11 @@ export function FileTreePanel({
 	const visibleFileCount = countFiles(items);
 
 	return (
-		<div className="flex h-full min-h-[520px] flex-col rounded-[28px] border border-slate-200 bg-white shadow-sm">
+		<UiContainer className="max-h-[720px] min-h-[560px]">
 			<FileTreeToolbar
 				showAllFiles={showAllFiles}
+				search={search}
+				onSearchChange={onSearchChange}
 				onToggleShowAllFiles={onToggleShowAllFiles}
 				visibleFileCount={visibleFileCount}
 				totalFileCount={totalFileCount}
@@ -50,37 +56,34 @@ export function FileTreePanel({
 						No files to show
 					</p>
 					<p className="mt-2 max-w-sm text-sm text-slate-500">
-						Try showing all files or upload a ZIP package to restore the full
-						project structure.
+						Try another search or switch views.
 					</p>
 				</div>
 			) : (
-				<ScrollArea className="min-h-0 flex-1">
-					<div className="space-y-1 p-3">
-						{items.map(node => (
-							<FileTreeNode
-								key={node.path}
-								node={node}
-								expandedPaths={expandedPaths}
-								selectedFileId={selectedFileId}
-								onToggleFolder={path => {
-									setExpandedPaths(previous => {
-										const next = new Set(previous);
-										if (next.has(path)) {
-											next.delete(path);
-										} else {
-											next.add(path);
-										}
-										return next;
-									});
-								}}
-								onSelectFile={onSelectFile}
-							/>
-						))}
-					</div>
-				</ScrollArea>
+				<UiScrollableArea viewportClassName="space-y-1 p-3">
+					{items.map(node => (
+						<FileTreeNode
+							key={node.path}
+							node={node}
+							expandedPaths={expandedPaths}
+							selectedFileId={selectedFileId}
+							onToggleFolder={path => {
+								setExpandedPaths(previous => {
+									const next = new Set(previous);
+									if (next.has(path)) {
+										next.delete(path);
+									} else {
+										next.add(path);
+									}
+									return next;
+								});
+							}}
+							onSelectFile={onSelectFile}
+						/>
+					))}
+				</UiScrollableArea>
 			)}
-		</div>
+		</UiContainer>
 	);
 }
 

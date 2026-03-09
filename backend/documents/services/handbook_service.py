@@ -14,6 +14,7 @@ from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from clients.models import Client
@@ -47,6 +48,10 @@ from .inject_docx import inject_docx_assets
 from .inject_pptx import inject_pptx_assets
 from .inject_xlsx import inject_xlsx_assets
 from .office_asset_types import ResolvedOfficeAsset
+from .placeholder_normalization import (
+    canonicalize_placeholder_key as normalize_placeholder_key,
+    is_current_date_placeholder,
+)
 from .storage import LocalFilesystemStorage
 from .variable_keys import (
     CANONICAL_ASSET_LOGO,
@@ -65,7 +70,7 @@ MAX_ZIP_ENTRY_BYTES = 100 * 1024 * 1024
 ASSET_KEYS = {CANONICAL_ASSET_LOGO, CANONICAL_ASSET_SIGNATURE}
 PARSEABLE_EXTS = {".docx", ".pptx", ".xlsx"}
 
-PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([A-Za-z0-9_.-]+)(?:\s*\|[^{}]+)?\s*\}\}")
+PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 LEGACY_ASSET_PATTERN = re.compile(
     r"(?<!\\)(\[(LOGO|SIGNATURE)\]|__ASSET_(LOGO|SIGNATURE)__)",
     re.IGNORECASE,
@@ -124,39 +129,44 @@ class UploadZipResult:
 
 
 def canonicalize_placeholder_key(raw: str) -> str:
-    token = (raw or "").strip()
-    if not token:
-        return ""
+    return normalize_placeholder_key(raw)
 
-    if token.startswith("{{") and token.endswith("}}"):
-        token = token[2:-2].strip()
-    if "|" in token:
-        token = token.split("|", 1)[0].strip()
 
-    lowered = re.sub(r"\s+", "", token).lower()
-    if not lowered:
-        return ""
+def _decode_zip_entry_filename(info) -> str:
+    """Correctly decode a ZIP entry filename.
 
-    aliases = {
-        "assets.logo": CANONICAL_ASSET_LOGO,
-        "asset_logo": CANONICAL_ASSET_LOGO,
-        "assets_logo": CANONICAL_ASSET_LOGO,
-        "logo": CANONICAL_ASSET_LOGO,
-        "company_logo": CANONICAL_ASSET_LOGO,
-        "[logo]": CANONICAL_ASSET_LOGO,
-        "__asset_logo__": CANONICAL_ASSET_LOGO,
-        "company.logo": CANONICAL_ASSET_LOGO,
-        "assets.signature": CANONICAL_ASSET_SIGNATURE,
-        "asset_signature": CANONICAL_ASSET_SIGNATURE,
-        "assets_signature": CANONICAL_ASSET_SIGNATURE,
-        "signature": CANONICAL_ASSET_SIGNATURE,
-        "company_signature": CANONICAL_ASSET_SIGNATURE,
-        "[signature]": CANONICAL_ASSET_SIGNATURE,
-        "__asset_signature__": CANONICAL_ASSET_SIGNATURE,
-        "company.signature": CANONICAL_ASSET_SIGNATURE,
-    }
+    Handles non-UTF-8 Windows encodings for ZIP archives with German filenames.
+    Python's ZipFile decodes filenames as UTF-8 when the language encoding flag
+    (bit 11) is set, and as CP437 otherwise. ZIP files created by German
+    Windows tools often encode filenames in CP1252 without setting that flag,
+    causing CP437 decoding to produce garbled characters.
 
-    return aliases.get(lowered, lowered)
+    This function re-encodes the CP437-decoded string back to raw bytes,
+    then attempts UTF-8 before falling back to CP1252.
+    """
+    if info.flag_bits & 0x800:
+        # Python already decoded this correctly as UTF-8.
+        return info.filename
+
+    try:
+        raw = info.filename.encode("cp437")
+    except (UnicodeEncodeError, LookupError):
+        return info.filename
+
+    # Try UTF-8 first – some modern tools write UTF-8 without the flag.
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+
+    # Fall back to CP1252 (Windows-1252), the dominant encoding for Western
+    # European (including German) Windows ZIP tools that don't use UTF-8.
+    try:
+        return raw.decode("cp1252")
+    except (UnicodeDecodeError, LookupError):
+        pass
+
+    return info.filename
 
 
 def _safe_zip_path(name: str) -> str | None:
@@ -390,6 +400,130 @@ def refresh_handbook_completion(*, handbook: Handbook) -> None:
     for handbook_file in HandbookFile.objects.filter(handbook=handbook).order_by("path_in_handbook"):
         _update_file_completion(handbook, handbook_file, resolved_keys=resolved)
     _update_handbook_status(handbook, resolved_keys=resolved)
+
+
+def list_handbook_file_groups_for_client(*, customer_id: str) -> list[dict[str, object]]:
+    handbooks = list(
+        Handbook.objects.filter(customer_id=customer_id)
+        .order_by("-created_at")
+        .prefetch_related(
+            Prefetch(
+                "files",
+                queryset=HandbookFile.objects.order_by("path_in_handbook"),
+            )
+        )
+    )
+
+    groups: list[dict[str, object]] = []
+    for handbook in handbooks:
+        files = list(handbook.files.all())
+        if not files:
+            continue
+
+        groups.append(
+            {
+                "handbook_id": str(handbook.id),
+                "handbook_type": handbook.type,
+                "handbook_status": handbook.status,
+                "handbook_created_at": handbook.created_at.isoformat(),
+                "handbook_updated_at": handbook.updated_at.isoformat(),
+                "file_count": len(files),
+                "files": [
+                    {
+                        "id": str(item.id),
+                        "path_in_handbook": item.path_in_handbook,
+                        "file_type": item.file_type,
+                        "parse_status": item.parse_status,
+                        "placeholder_total": item.placeholder_total,
+                        "placeholder_resolved": item.placeholder_resolved,
+                        "size": item.size,
+                        "mime": item.mime,
+                        "created_at": item.created_at.isoformat(),
+                        "updated_at": item.updated_at.isoformat(),
+                        "deletable": True,
+                    }
+                    for item in files
+                ],
+            }
+        )
+
+    return groups
+
+
+def _cleanup_orphan_placeholder_values(*, handbook: Handbook) -> None:
+    remaining_keys = {
+        canonicalize_placeholder_key(item.key)
+        for item in Placeholder.objects.filter(handbook_file__handbook=handbook).only("key")
+    }
+    orphan_value_ids = [
+        item.id
+        for item in PlaceholderValue.objects.filter(handbook=handbook).only("id", "key")
+        if canonicalize_placeholder_key(item.key) not in remaining_keys
+    ]
+    if orphan_value_ids:
+        PlaceholderValue.objects.filter(id__in=orphan_value_ids).delete()
+
+
+def _delete_file_from_storage(*, root: Path, path_value: str) -> None:
+    cleaned = str(path_value or "").strip()
+    if not cleaned:
+        return
+
+    path = Path(cleaned)
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        return
+
+    for parent in path.parents:
+        if parent == root:
+            break
+        try:
+            parent.rmdir()
+        except OSError:
+            break
+
+
+@transaction.atomic
+def delete_handbook_file(*, handbook: Handbook, handbook_file_id: str) -> HandbookFile:
+    handbook_file = HandbookFile.objects.filter(id=handbook_file_id, handbook=handbook).first()
+    if handbook_file is None:
+        raise HandbookServiceError("Handbook file not found")
+
+    root = Path(handbook.root_storage_path or "")
+    original_blob_ref = handbook_file.original_blob_ref
+    working_blob_ref = handbook_file.working_blob_ref
+    deleted_file = handbook_file
+    handbook_file.delete()
+
+    _cleanup_orphan_placeholder_values(handbook=handbook)
+    refresh_handbook_completion(handbook=handbook)
+
+    if root.exists():
+        _delete_file_from_storage(root=root, path_value=original_blob_ref)
+        if working_blob_ref and working_blob_ref != original_blob_ref:
+            _delete_file_from_storage(root=root, path_value=working_blob_ref)
+
+    return deleted_file
+
+
+@transaction.atomic
+def delete_handbook(*, handbook: Handbook) -> Handbook:
+    deleted = handbook
+    root_path = Path(handbook.root_storage_path or "")
+    handbook.delete()
+
+    if root_path.exists():
+        try:
+            shutil.rmtree(root_path)
+        except OSError:
+            logger.warning(
+                "Failed to remove handbook storage directory %s",
+                root_path,
+                exc_info=True,
+            )
+
+    return deleted
 
 
 def _stable_sha256(value: str) -> str:
@@ -772,6 +906,108 @@ def _import_asset_from_client_data_url(
     )
 
 
+def _current_date_value() -> str:
+    return timezone.localdate().strftime("%d.%m.%Y")
+
+
+def _build_system_default_values(*, handbook: Handbook) -> dict[str, str]:
+    values: dict[str, str] = {}
+    placeholders = Placeholder.objects.filter(handbook_file__handbook=handbook).only("key", "meta")
+
+    for placeholder in placeholders:
+        key = canonicalize_placeholder_key(placeholder.key)
+        if key in ASSET_KEYS or not key:
+            continue
+
+        raw_locations = []
+        if isinstance(placeholder.meta, dict):
+            locations = placeholder.meta.get("locations", [])
+            if isinstance(locations, list):
+                raw_locations = [
+                    str(item.get("raw", "")).strip()
+                    for item in locations
+                    if isinstance(item, dict)
+                ]
+
+        if is_current_date_placeholder(
+            raw=raw_locations[0] if raw_locations else None,
+            canonical_key=key,
+        ):
+            values[key] = _current_date_value()
+
+    return values
+
+
+def sync_asset_placeholder_value(
+    *,
+    handbook: Handbook,
+    asset_type: str,
+    source: str = PlaceholderValue.Source.MANUAL,
+) -> None:
+    if asset_type == "logo":
+        key = CANONICAL_ASSET_LOGO
+    elif asset_type == "signature":
+        key = CANONICAL_ASSET_SIGNATURE
+    else:
+        raise HandbookServiceError(f"Unsupported asset_type '{asset_type}'")
+
+    placeholder_exists = Placeholder.objects.filter(
+        handbook_file__handbook=handbook,
+        key=key,
+    ).exists()
+    existing = PlaceholderValue.objects.filter(handbook=handbook, key=key).first()
+    asset = get_active_asset(handbook_id=str(handbook.id), asset_type=asset_type)
+
+    if not placeholder_exists and existing is None:
+        return
+
+    if asset is None:
+        if existing is None:
+            return
+        existing.value_text = None
+        existing.asset_id = None
+        existing.source = source
+        existing.last_generation_audit = None
+        existing.save(
+            update_fields=[
+                "value_text",
+                "asset_id",
+                "source",
+                "last_generation_audit",
+                "updated_at",
+            ]
+        )
+        return
+
+    defaults = {
+        "value_text": None,
+        "asset_id": asset.id,
+        "source": source,
+        "last_generation_audit": None,
+    }
+    if existing is None:
+        PlaceholderValue.objects.create(
+            handbook=handbook,
+            key=key,
+            **defaults,
+        )
+        return
+
+    existing.value_text = None
+    existing.asset_id = asset.id
+    existing.source = source
+    existing.last_generation_audit = None
+    existing.save(
+        update_fields=[
+            "value_text",
+            "asset_id",
+            "source",
+            "last_generation_audit",
+            "updated_at",
+        ]
+    )
+
+
 def autofill_placeholders_from_client(*, handbook: Handbook) -> None:
     customer = handbook.customer
     placeholder_keys = _placeholder_keys_for_handbook(handbook)
@@ -780,18 +1016,28 @@ def autofill_placeholders_from_client(*, handbook: Handbook) -> None:
 
     existing_values = _existing_placeholder_values(handbook)
     client_text_values = _build_client_text_values(customer)
+    default_values = {
+        **client_text_values,
+        **_build_system_default_values(handbook=handbook),
+    }
 
     for key in sorted(placeholder_keys):
         if key in ASSET_KEYS:
             continue
 
-        imported_value = client_text_values.get(key)
+        imported_value = default_values.get(key)
         if imported_value is None:
             continue
 
         existing = existing_values.get(key)
         if existing is not None and isinstance(existing.value_text, str) and existing.value_text.strip():
-            continue
+            if existing.source == PlaceholderValue.Source.MANUAL:
+                continue
+            if (
+                existing.source == PlaceholderValue.Source.IMPORTED
+                and existing.value_text.strip() == imported_value
+            ):
+                continue
 
         if existing is None:
             created = PlaceholderValue.objects.create(
@@ -843,21 +1089,11 @@ def autofill_placeholders_from_client(*, handbook: Handbook) -> None:
         if asset is None:
             continue
 
-        if existing is None:
-            created = PlaceholderValue.objects.create(
-                handbook=handbook,
-                key=key,
-                value_text=None,
-                asset_id=asset.id,
-                source=PlaceholderValue.Source.IMPORTED,
-            )
-            existing_values[key] = created
-            continue
-
-        existing.value_text = None
-        existing.asset_id = asset.id
-        existing.source = PlaceholderValue.Source.IMPORTED
-        existing.save(update_fields=["value_text", "asset_id", "source", "updated_at"])
+        sync_asset_placeholder_value(
+            handbook=handbook,
+            asset_type=asset_type,
+            source=PlaceholderValue.Source.IMPORTED,
+        )
 
 
 @transaction.atomic
@@ -900,11 +1136,12 @@ def upload_handbook_zip(*, handbook: Handbook, uploaded) -> UploadZipResult:
             if info.is_dir():
                 continue
 
-            safe_path = _safe_zip_path(info.filename)
+            decoded_name = _decode_zip_entry_filename(info)
+            safe_path = _safe_zip_path(decoded_name)
             if not safe_path:
                 warnings.append(
                     {
-                        "path": info.filename,
+                        "path": decoded_name,
                         "code": "SKIPPED_INVALID_PATH",
                         "message": "Skipped entry with unsafe path",
                     }

@@ -23,6 +23,10 @@ urlpatterns = [
         views.handbook_file_placeholders_view,
     ),
     path(
+        "handbooks/<str:handbook_id>/files/<str:file_id>",
+        views.handbook_file_detail_view,
+    ),
+    path(
         "handbooks/<str:handbook_id>/placeholders/save",
         views.handbook_save_placeholders_view,
     ),

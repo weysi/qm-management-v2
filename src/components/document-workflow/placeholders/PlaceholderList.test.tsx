@@ -11,6 +11,7 @@ function makePlaceholder(
 	return {
 		id: overrides.id ?? 'placeholder-1',
 		name: overrides.name ?? 'company.name',
+		normalizedKey: overrides.normalizedKey ?? overrides.name ?? 'company.name',
 		label: overrides.label ?? 'Company Name',
 		type: overrides.type ?? 'text',
 		status: overrides.status ?? 'empty',
@@ -19,6 +20,13 @@ function makePlaceholder(
 		preview: overrides.preview ?? 'No value added yet',
 		assetId: overrides.assetId ?? null,
 		multiline: overrides.multiline ?? false,
+		source: overrides.source ?? 'MANUAL',
+		sourceLabel: overrides.sourceLabel ?? 'Saved',
+		saveState: overrides.saveState ?? 'idle',
+		isAutoFilled: overrides.isAutoFilled ?? false,
+		isDate: overrides.isDate ?? false,
+		completionReason: overrides.completionReason ?? 'Required to finish this file',
+		errorMessage: overrides.errorMessage ?? null,
 		raw:
 			overrides.raw ??
 			({

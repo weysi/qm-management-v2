@@ -4,13 +4,24 @@ import { use, useState } from 'react';
 import Link from "next/link";
 import { useClient } from "@/hooks/useClients";
 import { useHandbooks } from '@/hooks/useHandbook';
+import { useDeleteHandbook } from '@/hooks';
 import { Header } from "@/components/layout/Header";
 import { Card, CardHeader, CardContent, CardTitle } from '@/components/ui/card';
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from '@/components/ui/dialog';
 import { CreateHandbookDialog } from '@/components/handbook-wizard/CreateHandbookDialog';
 import { formatDate } from "@/lib/utils";
+import { toast } from 'sonner';
+import type { Handbook } from '@/lib/schemas';
 import {
 	MapPin,
 	Briefcase,
@@ -23,6 +34,8 @@ import {
 	FileText,
 	Plus,
 	BookOpen,
+	Trash2,
+	AlertTriangle,
 } from 'lucide-react';
 
 interface PageProps {
@@ -30,23 +43,40 @@ interface PageProps {
 }
 
 export default function ClientDetailPage({ params }: PageProps) {
-  const { id } = use(params);
-  const { data: client, isLoading } = useClient(id);
-  const { data: allManuals = [] } = useHandbooks();
-  const [dialogOpen, setDialogOpen] = useState(false);
+	const { id } = use(params);
+	const { data: client, isLoading } = useClient(id);
+	const { data: allManuals = [] } = useHandbooks();
+	const deleteHandbook = useDeleteHandbook(id);
+	const [dialogOpen, setDialogOpen] = useState(false);
+	const [pendingHandbook, setPendingHandbook] = useState<Handbook | null>(null);
 
-  const clientManuals = allManuals.filter(m => m.customer_id === id);
+	const clientManuals = allManuals.filter(m => m.customer_id === id);
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <Spinner />
-      </div>
-    );
-  }
+	async function handleDeleteHandbook() {
+		if (!pendingHandbook) return;
+		try {
+			await deleteHandbook.mutateAsync(pendingHandbook.id);
+			toast.success('Workspace wurde gelöscht.');
+			setPendingHandbook(null);
+		} catch (error) {
+			toast.error(
+				error instanceof Error
+					? error.message
+					: 'Workspace konnte nicht gelöscht werden.',
+			);
+		}
+	}
 
-  if (!client) {
-    return (
+	if (isLoading) {
+		return (
+			<div className="flex justify-center items-center h-64">
+				<Spinner />
+			</div>
+		);
+	}
+
+	if (!client) {
+		return (
 			<div className="flex flex-col items-center justify-center p-12 text-center">
 				<Building2 className="w-12 h-12 text-gray-300 mb-4" />
 				<h3 className="text-lg font-medium text-gray-900">
@@ -63,9 +93,9 @@ export default function ClientDetailPage({ params }: PageProps) {
 				</Link>
 			</div>
 		);
-  }
+	}
 
-  return (
+	return (
 		<div className="bg-gray-50/50 min-h-screen pb-12">
 			<Header
 				title={client.name}
@@ -251,7 +281,8 @@ export default function ClientDetailPage({ params }: PageProps) {
 											Keine Dokumente
 										</p>
 										<p className="text-sm text-gray-500 mb-6 text-center max-w-[200px]">
-											Es wurde noch kein Dokumenten-Workspace für diesen Kunden erstellt.
+											Es wurde noch kein Dokumenten-Workspace für diesen Kunden
+											erstellt.
 										</p>
 										<Button
 											onClick={() => setDialogOpen(true)}
@@ -280,32 +311,48 @@ export default function ClientDetailPage({ params }: PageProps) {
 															: 'Entwurf';
 
 											return (
-												<Link
+												<div
 													key={m.id}
-													href={`/handbooks/${m.id}`}
-													className="block p-5 hover:bg-gray-50/80 transition-colors group"
+													className="p-5 transition-colors hover:bg-gray-50/80"
 												>
-													<div className="flex items-start justify-between mb-2 gap-4">
-														<p className="font-semibold text-sm text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-2">
-															{m.type}
-														</p>
-														<Badge
-															variant={statusVariant}
-															className="shrink-0 mt-0.5"
+													<div className="flex items-start justify-between gap-4">
+														<Link
+															href={`/handbooks/${m.id}`}
+															className="group min-w-0 flex-1"
 														>
-															{statusText}
-														</Badge>
+															<div className="flex items-start gap-4">
+																<p className="min-w-0 flex-1 font-semibold text-sm text-gray-900 transition-colors group-hover:text-blue-600 line-clamp-2">
+																	{m.type}
+																</p>
+																<Badge
+																	variant={statusVariant}
+																	className="shrink-0 mt-0.5"
+																>
+																	{statusText}
+																</Badge>
+															</div>
+															<div className="mt-3 flex flex-wrap items-center text-xs text-gray-500 gap-4">
+																<span className="flex items-center gap-1.5 bg-gray-100 px-2 py-1 rounded-md text-gray-600 font-medium">
+																	<FileText className="w-3.5 h-3.5" /> {m.type}
+																</span>
+																<span className="flex items-center gap-1.5">
+																	<Calendar className="w-3.5 h-3.5 text-gray-400" />{' '}
+																	{formatDate(m.updated_at)}
+																</span>
+															</div>
+														</Link>
+														<Button
+															type="button"
+															size="sm"
+															variant="ghost"
+															className="shrink-0 text-red-600 hover:text-red-700"
+															onClick={() => setPendingHandbook(m)}
+														>
+															<Trash2 className="h-4 w-4" />
+															Löschen
+														</Button>
 													</div>
-													<div className="flex items-center text-xs text-gray-500 mt-3 gap-4">
-														<span className="flex items-center gap-1.5 bg-gray-100 px-2 py-1 rounded-md text-gray-600 font-medium">
-															<FileText className="w-3.5 h-3.5" /> {m.type}
-														</span>
-														<span className="flex items-center gap-1.5">
-															<Calendar className="w-3.5 h-3.5 text-gray-400" />{' '}
-															{formatDate(m.updated_at)}
-														</span>
-													</div>
-												</Link>
+												</div>
 											);
 										})}
 									</div>
@@ -321,6 +368,48 @@ export default function ClientDetailPage({ params }: PageProps) {
 				onOpenChange={setDialogOpen}
 				client={client}
 			/>
+
+			<Dialog
+				open={Boolean(pendingHandbook)}
+				onOpenChange={open => {
+					if (!open) setPendingHandbook(null);
+				}}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle className="flex items-center gap-2">
+							<AlertTriangle className="h-5 w-5 text-red-500" />
+							Workspace löschen
+						</DialogTitle>
+						<DialogDescription>
+							Der gesamte Dokumenten-Workspace inklusive Dateien, Versionen und
+							Referenzen wird dauerhaft entfernt. Die anderen Ansichten werden
+							danach sofort aktualisiert.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-900">
+						{pendingHandbook?.type ?? 'Workspace'}
+					</div>
+					<DialogFooter className="gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => setPendingHandbook(null)}
+							disabled={deleteHandbook.isPending}
+						>
+							Abbrechen
+						</Button>
+						<Button
+							type="button"
+							variant="destructive"
+							loading={deleteHandbook.isPending}
+							onClick={() => void handleDeleteHandbook()}
+						>
+							Endgültig löschen
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

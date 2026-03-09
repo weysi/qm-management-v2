@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   ReferenceComposeTraceItemSchema,
+  ReferenceSkippedTraceItemSchema,
   ReferenceScopeSchema,
 } from './reference-file.schema';
 
@@ -137,7 +138,20 @@ export const HandbookComposeConfigSchema = z.object({
 export const HandbookComposeTraceSchema = z.object({
   generation_mode: z.string(),
   selected_references: z.array(ReferenceComposeTraceItemSchema).default([]),
+  requested_reference_ids: z.array(z.string()).default([]),
+  used_reference_ids: z.array(z.string()).default([]),
+  skipped_references: z.array(ReferenceSkippedTraceItemSchema).default([]),
   chunk_count: z.number().int().nonnegative(),
+  target_intent: z.string().optional(),
+  tenant_context_summary: z.string().optional(),
+  token_budget: z
+    .object({
+      max_reference_documents: z.number().int().positive(),
+      max_reference_chunks: z.number().int().positive(),
+      max_reference_tokens: z.number().int().positive(),
+      selected_reference_tokens: z.number().int().nonnegative(),
+    })
+    .optional(),
   file_context_used: z.record(z.string(), z.unknown()).default({}),
   fallback_path: z.string(),
   selection_trace: z.record(z.string(), z.unknown()).optional(),
@@ -182,6 +196,30 @@ export const HandbookCompletionSchema = z.object({
   required_resolved: z.number().int().nonnegative(),
   is_complete_required: z.boolean(),
   files: z.array(HandbookCompletionFileSchema),
+  placeholders: z
+    .array(
+      z.object({
+        file_id: z.string().uuid(),
+        key: z.string(),
+        kind: z.enum(['TEXT', 'ASSET']),
+        required: z.boolean(),
+        resolved: z.boolean(),
+        value_hash: z.string().default(''),
+        asset_id: z.string().nullable().optional(),
+      }),
+    )
+    .default([]),
+  file_checksums: z
+    .array(
+      z.object({
+        file_id: z.string().uuid(),
+        path: z.string(),
+        checksum: z.string(),
+        file_type: z.string(),
+      }),
+    )
+    .default([]),
+  completion_hash: z.string().optional(),
 });
 
 export type HandbookType = z.infer<typeof HandbookTypeSchema>;

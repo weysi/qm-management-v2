@@ -6,3 +6,4 @@ export * from "./template-file.schema";
 export * from "./manual-generation.schema";
 export * from "./document.schema";
 export * from "./handbook.schema";
+export * from "./client-handbook-file.schema";

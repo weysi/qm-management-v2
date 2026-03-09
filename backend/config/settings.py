@@ -36,6 +36,23 @@ def parse_database_url(database_url: str) -> dict[str, object]:
     }
 
 
+def default_local_database() -> dict[str, object]:
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": env("DATABASE_NAME", "qm-documents"),
+        "USER": (
+            env("DATABASE_USER")
+            or env("PGUSER")
+            or os.getenv("USER")
+            or "postgres"
+        ),
+        "PASSWORD": env("DATABASE_PASSWORD") or env("PGPASSWORD") or "",
+        "HOST": env("DATABASE_HOST", "localhost"),
+        "PORT": env("DATABASE_PORT", "5432"),
+        "CONN_MAX_AGE": 60,
+    }
+
+
 SECRET_KEY = env("SECRET_KEY", "dev-only-secret-key-change-me")
 DEBUG = env_bool("DEBUG", True)
 ALLOWED_HOSTS = [host for host in env("ALLOWED_HOSTS", "*").split(",") if host]
@@ -86,8 +103,12 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 
-DATABASE_URL = env("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/qm-documents")
-DATABASES = {"default": parse_database_url(DATABASE_URL)}
+DATABASE_URL = env("DATABASE_URL")
+DATABASES = {
+    "default": parse_database_url(DATABASE_URL)
+    if DATABASE_URL
+    else default_local_database()
+}
 
 
 AUTH_PASSWORD_VALIDATORS: list[dict[str, str]] = []

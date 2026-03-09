@@ -1,5 +1,8 @@
 from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
+
+from documents.services.handbook_service import list_handbook_file_groups_for_client
 
 from .models import Client
 from .serializers import ClientSerializer
@@ -28,3 +31,15 @@ class ClientViewSet(
     def partial_update(self, request, *args, **kwargs):
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
+
+    @action(detail=True, methods=["get"], url_path="handbook-files")
+    def handbook_files(self, request, pk=None):
+        del request
+        client = self.get_object()
+        return Response(
+            {
+                "client_id": str(client.id),
+                "groups": list_handbook_file_groups_for_client(customer_id=str(client.id)),
+            },
+            status=status.HTTP_200_OK,
+        )

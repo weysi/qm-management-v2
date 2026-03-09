@@ -1,4 +1,5 @@
 import type { Client } from '@/lib/schemas';
+import { canonicalizePlaceholderKey } from '@/lib/document-workflow/placeholder-normalization';
 
 interface TextToken {
   kind: 'text';
@@ -12,8 +13,6 @@ interface PlaceholderToken {
 }
 
 type Token = TextToken | PlaceholderToken;
-
-const PATH_REGEX = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/;
 
 function tokenize(text: string): Token[] {
   const out: Token[] = [];
@@ -48,11 +47,12 @@ function tokenize(text: string): Token[] {
         break;
       }
       const expr = text.slice(i + 2, close).trim();
-      if (expr && PATH_REGEX.test(expr)) {
+      const variable = canonicalizePlaceholderKey(expr);
+      if (variable) {
         out.push({
           kind: 'placeholder',
           raw: text.slice(i, close + 2),
-          variable: expr,
+          variable,
         });
       } else {
         pushText(text.slice(i, close + 2));
@@ -68,11 +68,12 @@ function tokenize(text: string): Token[] {
         break;
       }
       const expr = text.slice(i + 2, close).trim();
-      if (expr && PATH_REGEX.test(expr)) {
+      const variable = canonicalizePlaceholderKey(expr);
+      if (variable) {
         out.push({
           kind: 'placeholder',
           raw: text.slice(i, close + 1),
-          variable: expr,
+          variable,
         });
       } else {
         pushText(text.slice(i, close + 1));

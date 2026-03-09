@@ -39,6 +39,7 @@ from .services.compose_service import (
 )
 from .services.asset_service import (
     AssetValidationError,
+    asset_to_data_url,
     get_active_asset,
     list_assets,
     save_signature_data_url,
@@ -55,6 +56,8 @@ from .services.handbook_service import (
     canonicalize_placeholder_key,
     create_snapshot_from_current_state,
     create_handbook,
+    delete_handbook,
+    delete_handbook_file,
     delete_snapshot,
     export_handbook,
     get_file_placeholders,
@@ -63,6 +66,7 @@ from .services.handbook_service import (
     refresh_handbook_completion,
     resolve_snapshot_export_path,
     save_placeholder_values,
+    sync_asset_placeholder_value,
     upload_handbook_zip,
 )
 from .services.render_service import RenderValidationError, render_document
@@ -346,6 +350,10 @@ def files_delete_view(request):
 
 @api_view(["GET", "POST"])
 def handbook_assets_view(request, handbook_id: str):
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
     if request.method == "GET":
         assets = list_assets(handbook_id)
         _dev_log("ASSET_LIST", handbook_id=handbook_id, count=len(assets))
@@ -366,9 +374,16 @@ def handbook_assets_view(request, handbook_id: str):
         asset_type=asset_type,
         asset_id=str(asset.id),
     )
-    handbook = _get_handbook_or_404(handbook_id)
-    if handbook is not None:
-        refresh_handbook_completion(handbook=handbook)
+    sync_asset_placeholder_value(
+        handbook=handbook,
+        asset_type=asset_type,
+    )
+    _sync_client_asset_from_workspace(
+        handbook=handbook,
+        asset_type=asset_type,
+        asset=asset,
+    )
+    refresh_handbook_completion(handbook=handbook)
 
     return Response({"asset": WorkspaceAssetSerializer(asset).data}, status=status.HTTP_201_CREATED)
 
@@ -391,6 +406,15 @@ def handbook_signature_asset_view(request, handbook_id: str):
             handbook_id=handbook_id,
             asset_type="signature",
             asset_id=str(asset.id),
+        )
+        sync_asset_placeholder_value(
+            handbook=handbook,
+            asset_type="signature",
+        )
+        _sync_client_asset_from_workspace(
+            handbook=handbook,
+            asset_type="signature",
+            asset=None,
         )
         refresh_handbook_completion(handbook=handbook)
         return Response({"status": "deleted", "asset_type": "signature"}, status=status.HTTP_200_OK)
@@ -420,12 +444,25 @@ def handbook_signature_asset_view(request, handbook_id: str):
     except AssetValidationError as exc:
         return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
+    sync_asset_placeholder_value(
+        handbook=handbook,
+        asset_type="signature",
+    )
+    _sync_client_asset_from_workspace(
+        handbook=handbook,
+        asset_type="signature",
+        asset=asset,
+    )
     refresh_handbook_completion(handbook=handbook)
     return Response({"asset": WorkspaceAssetSerializer(asset).data}, status=status.HTTP_201_CREATED)
 
 
 @api_view(["DELETE"])
 def handbook_asset_detail_view(request, handbook_id: str, asset_type: str):
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
     try:
         asset = soft_delete_asset(handbook_id=handbook_id, asset_type=asset_type)
     except AssetValidationError as exc:
@@ -438,9 +475,16 @@ def handbook_asset_detail_view(request, handbook_id: str, asset_type: str):
         asset_type=asset_type,
         asset_id=str(asset.id),
     )
-    handbook = _get_handbook_or_404(handbook_id)
-    if handbook is not None:
-        refresh_handbook_completion(handbook=handbook)
+    sync_asset_placeholder_value(
+        handbook=handbook,
+        asset_type=asset_type,
+    )
+    _sync_client_asset_from_workspace(
+        handbook=handbook,
+        asset_type=asset_type,
+        asset=None,
+    )
+    refresh_handbook_completion(handbook=handbook)
     return Response({"status": "deleted", "asset_type": asset_type}, status=status.HTTP_200_OK)
 
 
@@ -480,6 +524,27 @@ def _get_handbook_or_404(handbook_id: str) -> Handbook | None:
     return handbook
 
 
+def _sync_client_asset_from_workspace(
+    *,
+    handbook: Handbook,
+    asset_type: str,
+    asset,
+) -> None:
+    if asset_type == "logo":
+        field_name = "logo_url"
+    elif asset_type == "signature":
+        field_name = "signature_url"
+    else:
+        return
+
+    next_value = asset_to_data_url(asset) if asset is not None else None
+    if getattr(handbook.customer, field_name) == next_value:
+        return
+
+    setattr(handbook.customer, field_name, next_value)
+    handbook.customer.save(update_fields=[field_name, "updated_at"])
+
+
 @api_view(["GET", "POST"])
 def handbooks_view(request):
     if request.method == "GET":
@@ -504,12 +569,27 @@ def handbooks_view(request):
     return Response(HandbookSerializer(handbook).data, status=status.HTTP_201_CREATED)
 
 
-@api_view(["GET"])
+@api_view(["GET", "DELETE"])
 def handbook_detail_view(request, handbook_id: str):
-    del request
     handbook = _get_handbook_or_404(handbook_id)
     if handbook is None:
         return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "DELETE":
+        deleted_handbook_id = str(handbook.id)
+        deleted_customer_id = str(handbook.customer_id)
+        delete_handbook(handbook=handbook)
+        return Response(
+            {
+                "status": "deleted",
+                "handbook": {
+                    "id": deleted_handbook_id,
+                    "customer_id": deleted_customer_id,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
     return Response(HandbookSerializer(handbook).data, status=status.HTTP_200_OK)
 
 
@@ -574,6 +654,31 @@ def handbook_file_placeholders_view(request, handbook_id: str, file_id: str):
             "file": HandbookFileSerializer(handbook_file).data,
             "placeholders": payload["placeholders"],
             "completion": payload["completion"],
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(["DELETE"])
+def handbook_file_detail_view(request, handbook_id: str, file_id: str):
+    del request
+    handbook = _get_handbook_or_404(handbook_id)
+    if handbook is None:
+        return Response({"error": "Handbook not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    try:
+        handbook_file = delete_handbook_file(handbook=handbook, handbook_file_id=file_id)
+    except HandbookServiceError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
+    return Response(
+        {
+            "status": "deleted",
+            "file": {
+                "id": str(handbook_file.id),
+                "path_in_handbook": handbook_file.path_in_handbook,
+            },
+            "completion": get_handbook_completion_summary(handbook=handbook),
         },
         status=status.HTTP_200_OK,
     )
@@ -732,6 +837,7 @@ def handbook_reference_file_preview_view(request, handbook_id: str, ref_id: str)
         {
             "reference_document": ReferenceDocumentSerializer(payload["reference_document"]).data,
             "summary": payload["summary"],
+            "analysis": payload.get("analysis", {}),
             "sections": payload["sections"],
             "links": payload["links"],
         },
