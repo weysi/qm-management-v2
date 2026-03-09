@@ -1,0 +1,109 @@
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: qm-management-caddy
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.frontend.prod
+    container_name: qm-management-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      BACKEND_URL: http://backend:8001
+      AUTH_SECRET: ${AUTH_SECRET}
+      APP_USERNAME: ${APP_USERNAME}
+      APP_PASSWORD: ${APP_PASSWORD}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/login').then((res) => { if (!res.ok) process.exit(1); }).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: qm-management-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DEBUG: "false"
+      SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      ALLOWED_HOSTS: backend,localhost,127.0.0.1
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
+      OPENAI_REWRITE_MODEL: ${OPENAI_REWRITE_MODEL:-gpt-4o-mini}
+      OPENAI_VARIABLE_MODEL: ${OPENAI_VARIABLE_MODEL:-gpt-4o-mini}
+      OPENAI_COMPOSE_MODEL: ${OPENAI_COMPOSE_MODEL:-gpt-4o-mini}
+      DATA_ROOT: /data
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-180}
+    command: ["sh", "/app/backend/entrypoint.prod.sh"]
+    volumes:
+      - qm_documents_data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/health/', timeout=5).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: qm-management-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - qm_documents_pg:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  caddy_config:
+  caddy_data:
+  qm_documents_data:
+  qm_documents_pg:

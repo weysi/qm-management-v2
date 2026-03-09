@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 
-export default function RootPage() {
-  redirect("/dashboard");
+import { isAuthenticated } from '@/lib/mock-auth';
+
+export default async function RootPage() {
+	redirect((await isAuthenticated()) ? '/dashboard' : '/login');
 }

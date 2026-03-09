@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Home, Users, BookOpen } from 'lucide-react';
+import { Home, Users, BookOpen, LogOut, ShieldCheck } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
 
 const navItems = [
 	{
@@ -64,7 +66,28 @@ export function Sidebar() {
 			</nav>
 
 			{/* Footer */}
-			<div className="px-4 py-4 border-t border-gray-100">
+			<div className="space-y-3 border-t border-gray-100 px-4 py-4">
+				<div className="rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-3">
+					<div className="flex items-start gap-2">
+						<ShieldCheck className="mt-0.5 h-4 w-4 text-primary" />
+						<div>
+							<p className="text-xs font-semibold text-gray-900">
+								Demo-Zugang aktiv
+							</p>
+							<p className="mt-1 text-xs text-gray-500">Benutzer: admin</p>
+						</div>
+					</div>
+				</div>
+				<Button
+					asChild
+					variant="outline"
+					className="w-full justify-start"
+				>
+					<a href="/logout">
+						<LogOut className="h-4 w-4" />
+						Abmelden
+					</a>
+				</Button>
 				<p className="text-xs text-gray-400 text-center">ISO 9001:2015</p>
 			</div>
 		</aside>

@@ -1,6 +1,5 @@
 "use client";
 
-
 import { useRef } from 'react';
 import { useRouter } from "next/navigation";
 import { useForm } from 'react-hook-form';
@@ -11,9 +10,15 @@ import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import {
+	Form,
+	FormControl,
+	FormField,
+	FormItem,
+	FormLabel,
+	FormMessage,
+} from '@/components/ui/form';
 import { toast } from 'sonner';
 import { ImagePlus, RefreshCcw, Trash2 } from 'lucide-react';
 import type { CreateClientInput } from '@/lib/schemas';
@@ -35,19 +40,12 @@ async function fileToDataUrl(file: File): Promise<string> {
 }
 
 export default function NewClientPage() {
-  const router = useRouter();
-  const { mutate: createClient, isPending } = useCreateClient();
+	const router = useRouter();
+	const { mutate: createClient, isPending } = useCreateClient();
 	const logoInputRef = useRef<HTMLInputElement | null>(null);
 	const signatureInputRef = useRef<HTMLInputElement | null>(null);
 
-  const {
-		register,
-		handleSubmit,
-		setValue,
-		watch,
-
-		formState: { errors },
-	} = useForm<CreateClientInput>({
+	const form = useForm<CreateClientInput>({
 		resolver: zodResolver(CreateClientSchema),
 		mode: 'onTouched',
 		defaultValues: {
@@ -57,8 +55,8 @@ export default function NewClientPage() {
 		},
 	});
 
-	const logoUrl = watch('logoUrl');
-	const signatureUrl = watch('signatureUrl');
+	const logoUrl = form.watch('logoUrl');
+	const signatureUrl = form.watch('signatureUrl');
 
 	async function handleAssetSelect(
 		field: 'logoUrl' | 'signatureUrl',
@@ -72,7 +70,7 @@ export default function NewClientPage() {
 
 		try {
 			const dataUrl = await fileToDataUrl(file);
-			setValue(field, dataUrl, {
+			form.setValue(field, dataUrl, {
 				shouldDirty: true,
 				shouldTouch: true,
 				shouldValidate: true,
@@ -86,7 +84,6 @@ export default function NewClientPage() {
 		}
 	}
 
-	// ── Submit ─────────────────────────────────────────────────────────────
 	function onSubmit(data: CreateClientInput) {
 		createClient(data, {
 			onSuccess: client => {
@@ -102,269 +99,313 @@ export default function NewClientPage() {
 				subtitle="Kundendaten für QM-Handbuch erfassen"
 			/>
 
-			<form
-				onSubmit={handleSubmit(onSubmit)}
-				className="px-8 py-6 max-w-7xl space-y-6"
-			>
-				{/* ─── Main grid ───────────────────────────────────────────────────────── */}
-				<div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-					{/* ─ Left: text fields (spans 2 cols on large screens) ─────────── */}
-					<div className="lg:col-span-2 space-y-6">
-						{/* Firmendaten */}
-						<Card>
-							<CardHeader>
-								<CardTitle className="text-base">Firmendaten</CardTitle>
-							</CardHeader>
-							<CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-								<div className="sm:col-span-2 space-y-1.5">
-									<Label htmlFor="name">Firmenname *</Label>
-									<Input
-										id="name"
-										placeholder="Musterfirma GmbH"
-										{...register('name')}
+			<Form {...form}>
+				<form
+					onSubmit={form.handleSubmit(onSubmit)}
+					className="mx-auto max-w-5xl px-4 py-8 space-y-8"
+				>
+					<div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-start">
+						{/* ─ Left: text fields ─────────── */}
+						<div className="md:col-span-2 space-y-8">
+							{/* Firmendaten */}
+							<section className="space-y-4">
+								<h3 className="text-lg font-medium text-slate-900 border-b pb-2">
+									Firmendaten
+								</h3>
+								<div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+									<FormField
+										control={form.control}
+										name="name"
+										render={({ field }) => (
+											<FormItem className="sm:col-span-2">
+												<FormLabel>Firmenname *</FormLabel>
+												<FormControl>
+													<Input
+														placeholder="Musterfirma GmbH"
+														{...field}
+													/>
+												</FormControl>
+												<FormMessage />
+											</FormItem>
+										)}
 									/>
-									{errors.name && (
-										<p className="text-xs text-red-500">
-											{errors.name.message}
-										</p>
-									)}
-								</div>
 
-								<div className="space-y-1.5">
-									<Label htmlFor="address">Straße &amp; Hausnummer *</Label>
-									<Input
-										id="address"
-										placeholder="Musterstraße 1"
-										{...register('address')}
+									<FormField
+										control={form.control}
+										name="address"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>Straße &amp; Hausnummer *</FormLabel>
+												<FormControl>
+													<Input
+														placeholder="Musterstraße 1"
+														{...field}
+													/>
+												</FormControl>
+												<FormMessage />
+											</FormItem>
+										)}
 									/>
-									{errors.address && (
-										<p className="text-xs text-red-500">
-											{errors.address.message}
-										</p>
-									)}
-								</div>
 
-								<div className="space-y-1.5">
-									<Label htmlFor="zipCity">PLZ und Ort *</Label>
-									<Input
-										id="zipCity"
-										placeholder="12345 Musterstadt"
-										{...register('zipCity')}
+									<FormField
+										control={form.control}
+										name="zipCity"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>PLZ und Ort *</FormLabel>
+												<FormControl>
+													<Input
+														placeholder="12345 Musterstadt"
+														{...field}
+													/>
+												</FormControl>
+												<FormMessage />
+											</FormItem>
+										)}
 									/>
-									{errors.zipCity && (
-										<p className="text-xs text-red-500">
-											{errors.zipCity.message}
-										</p>
-									)}
-								</div>
 
-								<div className="sm:col-span-2 space-y-1.5">
-									<Label htmlFor="industry">Branche *</Label>
-									<Input
-										id="industry"
-										placeholder="Maschinenbau, Software, Logistik…"
-										{...register('industry')}
+									<FormField
+										control={form.control}
+										name="industry"
+										render={({ field }) => (
+											<FormItem className="sm:col-span-2">
+												<FormLabel>Branche *</FormLabel>
+												<FormControl>
+													<Input
+														placeholder="Maschinenbau, Software, Logistik…"
+														{...field}
+													/>
+												</FormControl>
+												<FormMessage />
+											</FormItem>
+										)}
 									/>
-									{errors.industry && (
-										<p className="text-xs text-red-500">
-											{errors.industry.message}
-										</p>
-									)}
 								</div>
-							</CardContent>
-						</Card>
+							</section>
 
-						{/* Kontaktpersonen */}
-						<Card>
-							<CardHeader>
-								<CardTitle className="text-base">Kontaktpersonen</CardTitle>
-							</CardHeader>
-							<CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-								<div className="space-y-1.5">
-									<Label htmlFor="ceo">Geschäftsführer (GF) *</Label>
-									<Input
-										id="ceo"
-										placeholder="Max Mustermann"
-										{...register('ceo')}
+							{/* Kontaktpersonen */}
+							<section className="space-y-4">
+								<h3 className="text-lg font-medium text-slate-900 border-b pb-2">
+									Kontaktpersonen
+								</h3>
+								<div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+									<FormField
+										control={form.control}
+										name="ceo"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>Geschäftsführer (GF) *</FormLabel>
+												<FormControl>
+													<Input
+														placeholder="Max Mustermann"
+														{...field}
+													/>
+												</FormControl>
+												<FormMessage />
+											</FormItem>
+										)}
 									/>
-									{errors.ceo && (
-										<p className="text-xs text-red-500">{errors.ceo.message}</p>
-									)}
-								</div>
 
-								<div className="space-y-1.5">
-									<Label htmlFor="qmManager">QM-Manager *</Label>
-									<Input
-										id="qmManager"
-										placeholder="Erika Musterfrau"
-										{...register('qmManager')}
+									<FormField
+										control={form.control}
+										name="qmManager"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>QM-Manager *</FormLabel>
+												<FormControl>
+													<Input
+														placeholder="Erika Musterfrau"
+														{...field}
+													/>
+												</FormControl>
+												<FormMessage />
+											</FormItem>
+										)}
 									/>
-									{errors.qmManager && (
-										<p className="text-xs text-red-500">
-											{errors.qmManager.message}
-										</p>
-									)}
-								</div>
 
-								<div className="space-y-1.5">
-									<Label htmlFor="employeeCount">Mitarbeiteranzahl *</Label>
-									<Input
-										id="employeeCount"
-										type="number"
-										min={1}
-										placeholder="50"
-										{...register('employeeCount', { valueAsNumber: true })}
+									<FormField
+										control={form.control}
+										name="employeeCount"
+										render={({ field }) => (
+											<FormItem className="sm:col-span-2">
+												<FormLabel>Mitarbeiteranzahl *</FormLabel>
+												<FormControl>
+													<Input
+														type="number"
+														min={1}
+														placeholder="50"
+														{...field}
+														onChange={e =>
+															field.onChange(e.target.valueAsNumber)
+														}
+													/>
+												</FormControl>
+												<FormMessage />
+											</FormItem>
+										)}
 									/>
-									{errors.employeeCount && (
-										<p className="text-xs text-red-500">
-											{errors.employeeCount.message}
-										</p>
-									)}
 								</div>
-							</CardContent>
-						</Card>
+							</section>
 
-						{/* Produkte & Dienstleistungen */}
-						<Card>
-							<CardHeader>
-								<CardTitle className="text-base">
+							{/* Produkte & Dienstleistungen */}
+							<section className="space-y-4">
+								<h3 className="text-lg font-medium text-slate-900 border-b pb-2">
 									Produkte &amp; Dienstleistungen
-								</CardTitle>
-							</CardHeader>
-							<CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-								<div className="space-y-1.5">
-									<Label htmlFor="products">Produkte *</Label>
-									<Textarea
-										id="products"
-										rows={4}
-										placeholder="Beschreiben Sie die Produkte des Unternehmens…"
-										{...register('products')}
+								</h3>
+								<div className="grid grid-cols-1 gap-5">
+									<FormField
+										control={form.control}
+										name="products"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>Produkte *</FormLabel>
+												<FormControl>
+													<Textarea
+														rows={3}
+														placeholder="Beschreiben Sie die Produkte des Unternehmens…"
+														{...field}
+													/>
+												</FormControl>
+												<FormMessage />
+											</FormItem>
+										)}
 									/>
-									{errors.products && (
-										<p className="text-xs text-red-500">
-											{errors.products.message}
-										</p>
-									)}
+
+									<FormField
+										control={form.control}
+										name="services"
+										render={({ field }) => (
+											<FormItem>
+												<FormLabel>Dienstleistungen *</FormLabel>
+												<FormControl>
+													<Textarea
+														rows={3}
+														placeholder="Beschreiben Sie die Dienstleistungen des Unternehmens…"
+														{...field}
+													/>
+												</FormControl>
+												<FormMessage />
+											</FormItem>
+										)}
+									/>
+								</div>
+							</section>
+						</div>
+
+						{/* ─ Right: Branding sidebar ─────────── */}
+						<div className="space-y-8">
+							<section className="space-y-4 bg-slate-50/50 p-5 rounded-2xl border border-slate-100">
+								<div className="mb-2">
+									<h3 className="text-lg font-medium text-slate-900">
+										Branding
+									</h3>
+									<p className="text-sm text-slate-500 mt-1">
+										Diese Assets werden in generierten Handbüchern verwendet.
+									</p>
 								</div>
 
-								<div className="space-y-1.5">
-									<Label htmlFor="services">Dienstleistungen *</Label>
-									<Textarea
-										id="services"
-										rows={4}
-										placeholder="Beschreiben Sie die Dienstleistungen des Unternehmens…"
-										{...register('services')}
+								<div className="space-y-6">
+									<FormField
+										control={form.control}
+										name="logoUrl"
+										render={() => (
+											<FormItem>
+												<AssetField
+													title="Firmenlogo"
+													description="Idealerweise als transparentes PNG."
+													value={logoUrl}
+													onPick={() => logoInputRef.current?.click()}
+													onClear={() =>
+														form.setValue('logoUrl', undefined, {
+															shouldDirty: true,
+															shouldTouch: true,
+															shouldValidate: true,
+														})
+													}
+												/>
+												<input
+													ref={logoInputRef}
+													type="file"
+													accept="image/png,image/jpeg,image/jpg,image/webp"
+													className="hidden"
+													onChange={event => {
+														const file = event.target.files?.[0] ?? null;
+														event.currentTarget.value = '';
+														void handleAssetSelect('logoUrl', file);
+													}}
+												/>
+												<FormMessage />
+											</FormItem>
+										)}
 									/>
-									{errors.services && (
-										<p className="text-xs text-red-500">
-											{errors.services.message}
-										</p>
-									)}
+
+									<Separator className="bg-slate-200" />
+
+									<FormField
+										control={form.control}
+										name="signatureUrl"
+										render={() => (
+											<FormItem>
+												<AssetField
+													title="Unterschrift"
+													description="GF-Signatur, freigestellt (PNG)."
+													value={signatureUrl}
+													onPick={() => signatureInputRef.current?.click()}
+													onClear={() =>
+														form.setValue('signatureUrl', undefined, {
+															shouldDirty: true,
+															shouldTouch: true,
+															shouldValidate: true,
+														})
+													}
+												/>
+												<input
+													ref={signatureInputRef}
+													type="file"
+													accept="image/png,image/jpeg,image/jpg,image/webp"
+													className="hidden"
+													onChange={event => {
+														const file = event.target.files?.[0] ?? null;
+														event.currentTarget.value = '';
+														void handleAssetSelect('signatureUrl', file);
+													}}
+												/>
+												<FormMessage />
+											</FormItem>
+										)}
+									/>
 								</div>
-							</CardContent>
-						</Card>
+							</section>
+						</div>
 					</div>
 
-					<div className="space-y-6">
-						<Card>
-							<CardHeader>
-								<CardTitle className="text-base">
-									Logo &amp; Unterschrift
-								</CardTitle>
-							</CardHeader>
-							<CardContent className="space-y-5">
-								<p className="text-sm text-slate-600">
-									Diese Assets werden beim Erstellen neuer Workspaces als
-									Standardwerte übernommen.
-								</p>
+					<Separator />
 
-								<AssetField
-									title="Firmenlogo"
-									description="Wird für passende Logo-Platzhalter im Handbook verwendet."
-									value={logoUrl}
-									inputRef={logoInputRef}
-									error={errors.logoUrl?.message}
-									onPick={() => logoInputRef.current?.click()}
-									onClear={() =>
-										setValue('logoUrl', undefined, {
-											shouldDirty: true,
-											shouldTouch: true,
-											shouldValidate: true,
-										})
-									}
-								/>
-								<input
-									ref={logoInputRef}
-									type="file"
-									accept="image/png,image/jpeg,image/jpg,image/gif,image/bmp,image/webp"
-									className="hidden"
-									onChange={event => {
-										const file = event.target.files?.[0] ?? null;
-										event.currentTarget.value = '';
-										void handleAssetSelect('logoUrl', file);
-									}}
-								/>
-
-								<AssetField
-									title="Unterschrift"
-									description="Wird für passende Signatur-Platzhalter im Handbook verwendet."
-									value={signatureUrl}
-									inputRef={signatureInputRef}
-									error={errors.signatureUrl?.message}
-									onPick={() => signatureInputRef.current?.click()}
-									onClear={() =>
-										setValue('signatureUrl', undefined, {
-											shouldDirty: true,
-											shouldTouch: true,
-											shouldValidate: true,
-										})
-									}
-								/>
-								<input
-									ref={signatureInputRef}
-									type="file"
-									accept="image/png,image/jpeg,image/jpg,image/gif,image/bmp,image/webp"
-									className="hidden"
-									onChange={event => {
-										const file = event.target.files?.[0] ?? null;
-										event.currentTarget.value = '';
-										void handleAssetSelect('signatureUrl', file);
-									}}
-								/>
-							</CardContent>
-						</Card>
+					<div className="flex justify-end gap-3 pb-8">
+						<Button
+							type="button"
+							variant="ghost"
+							onClick={() => router.back()}
+						>
+							Abbrechen
+						</Button>
+						<Button
+							type="submit"
+							loading={isPending}
+						>
+							Kunde anlegen
+						</Button>
 					</div>
-				</div>
-
-				<Separator />
-
-				{/* Action buttons */}
-				<div className="flex justify-between items-center pb-8">
-					<Button
-						type="button"
-						variant="outline"
-						onClick={() => router.back()}
-					>
-						Abbrechen
-					</Button>
-					<Button
-						type="submit"
-						loading={isPending}
-					>
-						Kunde anlegen
-					</Button>
-				</div>
-			</form>
+				</form>
+			</Form>
 		</div>
 	);
 }
 
 interface AssetFieldProps {
 	title: string;
-	description: string;
+	description?: string;
 	value: string | undefined;
-	inputRef: React.RefObject<HTMLInputElement | null>;
-	error?: string;
 	onPick: () => void;
 	onClear: () => void;
 }
@@ -373,59 +414,78 @@ function AssetField({
 	title,
 	description,
 	value,
-	error,
 	onPick,
 	onClear,
 }: AssetFieldProps) {
-	const hasAsset = Boolean(value);
-
 	return (
-		<div className="space-y-3 rounded-2xl border border-slate-200 p-4">
+		<div className="space-y-3">
 			<div>
-				<p className="text-sm font-semibold text-slate-900">{title}</p>
-				<p className="mt-1 text-sm text-slate-500">{description}</p>
-			</div>
-
-			<div className="flex min-h-[180px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
-				{value ? (
-					<img
-						src={value}
-						alt={title}
-						className="max-h-36 rounded-xl object-contain"
-					/>
-				) : (
-					<p className="text-center text-sm text-slate-500">
-						Noch kein Asset hochgeladen.
-					</p>
+				<p className="text-sm font-semibold text-slate-800">{title}</p>
+				{description && (
+					<p className="text-xs text-slate-500 mt-0.5">{description}</p>
 				)}
 			</div>
 
-			<div className="flex flex-col gap-2">
-				<Button
-					type="button"
-					variant="outline"
-					onClick={onPick}
-				>
-					{hasAsset ? (
-						<RefreshCcw className="h-4 w-4" />
-					) : (
-						<ImagePlus className="h-4 w-4" />
-					)}
-					{hasAsset ? 'Ersetzen' : 'Bild hochladen'}
-				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					className="text-slate-600"
-					disabled={!hasAsset}
-					onClick={onClear}
-				>
-					<Trash2 className="h-4 w-4" />
-					Entfernen
-				</Button>
+			<div
+				onClick={!value ? onPick : undefined}
+				className={`group relative flex min-h-[140px] w-full items-center justify-center overflow-hidden rounded-xl border-2 transition-all ${
+					value
+						? 'border-slate-200 bg-white'
+						: 'border-dashed border-slate-300 bg-slate-50 hover:border-slate-400 hover:bg-slate-100 cursor-pointer'
+				}`}
+			>
+				{value ? (
+					<>
+						{/* eslint-disable-next-line @next/next/no-img-element */}
+						<img
+							src={value}
+							alt={title}
+							className="max-h-28 w-auto object-contain p-2"
+						/>
+						{/* Overlay actions on hover */}
+						<div className="absolute inset-0 flex items-center justify-center gap-2 bg-slate-900/60 opacity-0 transition-opacity group-hover:opacity-100">
+							<Button
+								type="button"
+								variant="secondary"
+								size="sm"
+								onClick={e => {
+									e.stopPropagation();
+									onPick();
+								}}
+								className="h-8 text-xs font-medium"
+							>
+								<RefreshCcw className="mr-1.5 h-3.5 w-3.5" />
+								Ändern
+							</Button>
+							<Button
+								type="button"
+								variant="destructive"
+								size="sm"
+								onClick={e => {
+									e.stopPropagation();
+									onClear();
+								}}
+								className="h-8 text-xs font-medium"
+							>
+								<Trash2 className="mr-1.5 h-3.5 w-3.5" />
+								Löschen
+							</Button>
+						</div>
+					</>
+				) : (
+					<div className="flex flex-col items-center justify-center gap-2 text-slate-500">
+						<div className="rounded-full bg-white p-2.5 shadow-sm ring-1 ring-slate-200/50">
+							<ImagePlus className="h-5 w-5 text-slate-400" />
+						</div>
+						<div className="text-center">
+							<p className="text-sm font-medium text-slate-700">Hochladen</p>
+							<p className="text-[11px] text-slate-400 mt-0.5">
+								Klick zum Auswählen
+							</p>
+						</div>
+					</div>
+				)}
 			</div>
-
-			{error ? <p className="text-xs text-red-500">{error}</p> : null}
 		</div>
 	);
 }
